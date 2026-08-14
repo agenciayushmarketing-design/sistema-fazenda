@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --background: 45 10% 98%;
+    --foreground: 30 4% 4%;
+    --card: 45 12% 99%;
+    --card-foreground: 30 4% 4%;
+    --primary: 214 67% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 45 8% 94%;
+    --secondary-foreground: 30 4% 15%;
+    --muted: 45 8% 94%;
+    --muted-foreground: 33 3% 42%;
+    --accent: 214 60% 95%;
+    --accent-foreground: 214 67% 30%;
+    --destructive: 0 62% 53%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 45 9% 87%;
+    --input: 45 9% 82%;
+    --ring: 214 67% 50%;
+
+    /* paleta de séries (validada p/ superfície clara) */
+    --serie-1: #2a78d6;
+    --serie-2: #eb6834;
+    --serie-3: #1baf7a;
+    --serie-4: #eda100;
+    --serie-5: #e87ba4;
+    --serie-6: #008300;
+    --serie-7: #4a3aa7;
+    --serie-8: #e34948;
+    --status-good: #0ca30c;
+    --status-warning: #fab219;
+    --status-serious: #ec835a;
+    --status-critical: #d03b3b;
+    --grid-line: #e1e0d9;
+    --axis-line: #c3c2b7;
+    --muted-ink: #898781;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased text-[13px];
+  }
+
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+}
