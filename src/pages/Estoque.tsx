@@ -2,13 +2,15 @@ import { useMemo, useState } from 'react'
 import { Plus, AlertTriangle } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TablePagination } from '@/components/ui/table'
+import { usePagination } from '@/hooks/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { toast } from '@/components/ui/toast'
 import type { CategoriaInsumo } from '@/data/types'
 import { addDays } from '@/data/seed'
 import { fmtBRL, fmtDate, fmtNum, hojeISO } from '@/lib/format'
@@ -42,6 +44,7 @@ export default function Estoque() {
 
   const nomeItem = (id: string) => state.estoque.find((i) => i.id === id)?.nome ?? id
   const movsOrdenados = [...state.movEstoque].sort((a, b) => b.data.localeCompare(a.data))
+  const movsPag = usePagination(movsOrdenados, 50)
 
   return (
     <div>
@@ -138,7 +141,7 @@ export default function Estoque() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {movsOrdenados.map((mv) => {
+                {movsPag.pageItems.map((mv) => {
                   const pedido = mv.pedidoId ? state.pedidos.find((p) => p.id === mv.pedidoId) : undefined
                   return (
                     <TableRow key={mv.id}>
@@ -160,6 +163,7 @@ export default function Estoque() {
                 })}
               </TableBody>
             </Table>
+            <TablePagination {...movsPag} />
             <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
               Entradas vêm de pedidos recebidos em Compras; saídas de sêmen espelham as doses dos protocolos IATF.
             </div>
@@ -178,14 +182,20 @@ function NovaSaidaDialog({ open, onClose }: { open: boolean; onClose: () => void
   const [qtd, setQtd] = useState('')
   const [lote, setLote] = useState('Rebanho geral')
   const [obs, setObs] = useState('')
+  const [erro, setErro] = useState('')
 
   const item = estoque.find((i) => i.id === itemId)
 
   const salvar = () => {
     const q = Number(qtd)
     if (!itemId || !q || q <= 0) return
-    addSaidaEstoque({ data: hojeISO(), itemId, quantidade: q, loteDestino: lote, obs: obs || undefined })
-    setQtd(''); setObs('')
+    const r = addSaidaEstoque({ data: hojeISO(), itemId, quantidade: q, loteDestino: lote, obs: obs || undefined })
+    if (!r.ok) {
+      setErro(r.erro ?? 'Não foi possível registrar a saída.')
+      return
+    }
+    toast(`Saída registrada: ${q.toLocaleString('pt-BR')} ${item?.unidade ?? ''} de ${item?.nome ?? itemId}.`)
+    setQtd(''); setObs(''); setErro('')
     onClose()
   }
 
@@ -214,6 +224,11 @@ function NovaSaidaDialog({ open, onClose }: { open: boolean; onClose: () => void
           <Input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="opcional" />
         </FormRow>
       </div>
+      {erro && (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">
+          {erro}
+        </p>
+      )}
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
         <Button onClick={salvar}>Salvar</Button>

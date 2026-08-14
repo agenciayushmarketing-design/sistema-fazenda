@@ -1,8 +1,10 @@
+import { Link } from 'react-router-dom'
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, Cell,
 } from 'recharts'
-import { AlertTriangle, OctagonAlert } from 'lucide-react'
+import type { TooltipProps } from 'recharts'
+import { AlertTriangle, ChevronRight, OctagonAlert } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, ChartCard } from '@/components/shared'
 import { CATEGORIA_LABEL, type Categoria } from '@/data/types'
@@ -14,6 +16,30 @@ import { fmtBRL, fmtGMD, fmtMesAno, fmtNum, fmtNum1, fmtNum2, fmtPct, fmtDateSho
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
 import { diffDays } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
+
+/** Tooltip da evolução com total do mês ao final */
+function EvolucaoTooltip({ active, payload, label }: TooltipProps<number, string>) {
+  if (!active || !payload || payload.length === 0) return null
+  const total = payload.reduce((s, p) => s + (Number(p.value) || 0), 0)
+  return (
+    <div className="rounded-md border bg-card px-2.5 py-1.5 text-xs shadow-sm">
+      <div className="font-semibold text-muted-foreground">{fmtMesAno(String(label))}</div>
+      {payload.map((p) => (
+        <div key={p.dataKey} className="flex items-center justify-between gap-4">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2 w-2 rounded-sm" style={{ background: p.color }} />
+            {p.name}
+          </span>
+          <span className="tnum">{fmtNum(Number(p.value) || 0)}</span>
+        </div>
+      ))}
+      <div className="mt-0.5 flex items-center justify-between gap-4 border-t pt-0.5 font-semibold">
+        <span>Total</span>
+        <span className="tnum">{fmtNum(total)}</span>
+      </div>
+    </div>
+  )
+}
 
 export default function Dashboard() {
   const state = useStore()
@@ -74,7 +100,7 @@ export default function Dashboard() {
               <CartesianGrid stroke={GRID} vertical={false} />
               <XAxis dataKey="mes" tickFormatter={fmtMesAno} {...axisProps} />
               <YAxis {...axisProps} />
-              <Tooltip {...tooltipStyle} labelFormatter={(v) => fmtMesAno(String(v))} />
+              <Tooltip content={<EvolucaoTooltip />} />
               <Legend wrapperStyle={{ fontSize: 11 }} />
               <Bar dataKey="Bezerros" stackId="a" fill={SERIES[0]} />
               <Bar dataKey="Recria" stackId="a" fill={SERIES[1]} />
@@ -128,10 +154,13 @@ export default function Dashboard() {
         <ChartCard title={`Alertas operacionais (${listaAlertas.length})`}>
           <div className="max-h-[230px] space-y-1.5 overflow-y-auto pr-1">
             {listaAlertas.map((a, i) => (
-              <div
+              <Link
                 key={i}
-                className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 ${
-                  a.severidade === 'critical' ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'
+                to={a.link}
+                className={`group flex items-start gap-2 rounded-md border px-2.5 py-1.5 transition-colors ${
+                  a.severidade === 'critical'
+                    ? 'border-red-200 bg-red-50 hover:bg-red-100'
+                    : 'border-amber-200 bg-amber-50 hover:bg-amber-100'
                 }`}
               >
                 {a.severidade === 'critical' ? (
@@ -139,11 +168,12 @@ export default function Dashboard() {
                 ) : (
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
                 )}
-                <div>
+                <div className="flex-1">
                   <div className="text-xs font-semibold leading-tight">{a.titulo}</div>
                   <div className="text-[11px] text-muted-foreground">{a.detalhe}</div>
                 </div>
-              </div>
+                <ChevronRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+              </Link>
             ))}
             {listaAlertas.length === 0 && (
               <div className="text-xs text-muted-foreground">Nenhum alerta ativo.</div>

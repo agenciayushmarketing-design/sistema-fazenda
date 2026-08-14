@@ -89,8 +89,15 @@ export function custoPorCentro(data: Pick<SeedData, 'pedidos'>): Record<string, 
   return out
 }
 
+/** Quantidade real de um lote de recria = animais ativos alocados nele */
+export function qtdLoteRecria(animais: Animal[], loteId: string): number {
+  return ativos(animais).filter((a) => a.loteId === loteId).length
+}
+
 // ---- Reprodução ----
-export function metricasReproducao(data: Pick<SeedData, 'diagnosticos' | 'estacoes' | 'protocolosIATF' | 'pedidos'>) {
+export function metricasReproducao(
+  data: Pick<SeedData, 'diagnosticos' | 'estacoes' | 'protocolosIATF' | 'pedidos' | 'animais'>,
+) {
   const estacao = data.estacoes.find((e) => e.status === 'em_andamento')
   const dgs = data.diagnosticos.filter((d) => d.estacaoId === estacao?.id)
   const prenhas = dgs.filter((d) => d.resultado === 'prenha')
@@ -106,7 +113,15 @@ export function metricasReproducao(data: Pick<SeedData, 'diagnosticos' | 'estaco
     .filter((i) => i.itemEstoqueId.startsWith('SEM-') || i.itemEstoqueId.startsWith('HOR-'))
     .reduce((s, i) => s + i.quantidade * i.valorUnitario, 0)
 
+  // ECC médio das matrizes ativas (vacas + novilhas >24m com escore registrado)
+  const matrizes = ativos(data.animais).filter(
+    (a) => (a.categoria === 'vaca' || a.categoria === 'novilha_24') && a.ecc !== undefined,
+  )
+  const eccMedio =
+    matrizes.length > 0 ? matrizes.reduce((s, a) => s + (a.ecc ?? 0), 0) / matrizes.length : 0
+
   return {
+    eccMedio,
     estacao,
     expostas,
     dosesIATF,
@@ -166,7 +181,7 @@ export function metricasCria(data: Pick<SeedData, 'partos' | 'desmames' | 'movim
     taxaDesmamePct: expostas > 0 ? ((partos.length - mortes.length) / expostas) * 100 : 0,
     pesoDesmame205,
     kgBezerroPorMatriz: expostas > 0 ? kgDesmamado / expostas : 0,
-    intervaloPartosDias: 385, // fictício estável da demo (média histórica)
+    intervaloPartosDias: PARAMS.cria.intervaloPartosDias,
   }
 }
 
@@ -176,6 +191,8 @@ export interface Alerta {
   severidade: 'warning' | 'critical'
   titulo: string
   detalhe: string
+  /** rota do módulo onde o alerta é tratado */
+  link: string
 }
 
 export function alertas(data: SeedData): Alerta[] {
@@ -190,6 +207,7 @@ export function alertas(data: SeedData): Alerta[] {
         severidade: 'warning',
         titulo: `${it.nome} vence em breve`,
         detalhe: `Validade ${it.validade.split('-').reverse().join('/')} — saldo ${it.saldo} ${it.unidade}`,
+        link: '/estoque',
       })
     }
   }
@@ -200,6 +218,7 @@ export function alertas(data: SeedData): Alerta[] {
         severidade: 'critical',
         titulo: `${pasto.nome} acima da capacidade`,
         detalhe: `${ua.toFixed(0)} UA para capacidade de ${pasto.capacidadeUA} UA`,
+        link: '/rebanho',
       })
     }
   }
@@ -210,6 +229,7 @@ export function alertas(data: SeedData): Alerta[] {
         severidade: 'warning',
         titulo: `${it.nome} abaixo do mínimo`,
         detalhe: `Saldo ${it.saldo.toLocaleString('pt-BR')} ${it.unidade} (mínimo ${it.minimo.toLocaleString('pt-BR')})`,
+        link: '/estoque',
       })
     }
   }
@@ -220,6 +240,7 @@ export function alertas(data: SeedData): Alerta[] {
       severidade: 'warning',
       titulo: `${pendentes} matrizes com DG pendente`,
       detalhe: 'Agendar diagnóstico de gestação do repasse',
+      link: '/reproducao',
     })
   }
   return out.sort((a, b) => (a.severidade === 'critical' ? -1 : 1) - (b.severidade === 'critical' ? -1 : 1))

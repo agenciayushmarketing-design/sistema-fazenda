@@ -54,6 +54,7 @@ export const PARAMS = {
     nascimentoIniDias: -305, // janela de partos, dias relativos a hoje
     nascimentoFimDias: -215,
     pesoNascerMedio: 32, // kg (±4)
+    intervaloPartosDias: 385, // média histórica das matrizes (indicador da demo)
     // desmame em duas rodadas
     desmameMachos: { dia: -75, qtd: 90, pesoMedio: 205 },
     desmameFemeas: { dia: -40, qtd: 80, pesoMedio: 182 },

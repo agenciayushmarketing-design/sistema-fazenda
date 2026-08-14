@@ -3,15 +3,19 @@ import { Plus, Trash2 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TablePagination } from '@/components/ui/table'
+import { usePagination } from '@/hooks/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { toast } from '@/components/ui/toast'
 import { metricasCria } from '@/lib/metrics'
 import { fmtDate, fmtKg1, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
+import type { Parto } from '@/data/types'
 
 export default function Cria() {
   const state = useStore()
@@ -19,9 +23,12 @@ export default function Cria() {
   const m = metricasCria(state)
   const [partoOpen, setPartoOpen] = useState(false)
   const [desmameOpen, setDesmameOpen] = useState(false)
+  const [partoExcluir, setPartoExcluir] = useState<Parto | null>(null)
 
   const partosOrdenados = [...state.partos].sort((a, b) => b.data.localeCompare(a.data))
   const desmamesOrdenados = [...state.desmames].sort((a, b) => b.data.localeCompare(a.data))
+  const partosPag = usePagination(partosOrdenados, 50)
+  const desmamesPag = usePagination(desmamesOrdenados, 50)
 
   return (
     <div>
@@ -88,7 +95,7 @@ export default function Cria() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {partosOrdenados.slice(0, 120).map((p) => (
+                {partosPag.pageItems.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="tnum">{fmtDate(p.data)}</TableCell>
                     <TableCell className="font-medium">{p.matrizBrinco}</TableCell>
@@ -104,9 +111,8 @@ export default function Cria() {
                       <button
                         className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-red-600"
                         title="Excluir parto"
-                        onClick={() => {
-                          if (confirm(`Excluir o parto de ${p.matrizBrinco} (${p.bezerroBrinco})?`)) removeParto(p.id)
-                        }}
+                        aria-label={`Excluir parto de ${p.matrizBrinco}`}
+                        onClick={() => setPartoExcluir(p)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -115,11 +121,7 @@ export default function Cria() {
                 ))}
               </TableBody>
             </Table>
-            {partosOrdenados.length > 120 && (
-              <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
-                Exibindo 120 de {fmtNum(partosOrdenados.length)} partos.
-              </div>
-            )}
+            <TablePagination {...partosPag} />
           </div>
         </TabsContent>
 
@@ -137,7 +139,7 @@ export default function Cria() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {desmamesOrdenados.map((d) => {
+                {desmamesPag.pageItems.map((d) => {
                   const parto = state.partos.find((p) => p.bezerroBrinco === d.bezerroBrinco)
                   const nascer = parto?.pesoNascer ?? 32
                   const aj205 = nascer + ((d.peso - nascer) / d.idadeDias) * 205
@@ -155,12 +157,33 @@ export default function Cria() {
                 })}
               </TableBody>
             </Table>
+            <TablePagination {...desmamesPag} />
           </div>
         </TabsContent>
       </Tabs>
 
       <NovoPartoDialog open={partoOpen} onClose={() => setPartoOpen(false)} />
       <NovoDesmameDialog open={desmameOpen} onClose={() => setDesmameOpen(false)} />
+
+      <ConfirmDialog
+        open={partoExcluir !== null}
+        onClose={() => setPartoExcluir(null)}
+        onConfirm={() => {
+          if (!partoExcluir) return
+          const r = removeParto(partoExcluir.id)
+          if (r.ok) {
+            toast(`Parto de ${partoExcluir.matrizBrinco} excluído — bezerro removido do Rebanho.`)
+          } else {
+            toast(r.erro ?? 'Não foi possível excluir.', 'error')
+          }
+        }}
+        title="Excluir parto"
+        confirmLabel="Excluir"
+        tone="destructive"
+      >
+        Excluir o parto de <strong>{partoExcluir?.matrizBrinco}</strong> ({partoExcluir?.bezerroBrinco})?
+        O bezerro e a movimentação de nascimento também serão removidos do Rebanho.
+      </ConfirmDialog>
     </div>
   )
 }
@@ -186,6 +209,7 @@ function NovoPartoDialog({ open, onClose }: { open: boolean; onClose: () => void
       dificuldade: Number(dif) as 1 | 2 | 3 | 4 | 5,
       estacaoId: estacoes.find((e) => e.status === 'encerrada')?.id ?? 'EM-2425',
     })
+    toast(`Parto registrado — ${bezerro} criado automaticamente no Rebanho.`)
     setMatriz(''); setBezerro('')
     onClose()
   }
@@ -211,6 +235,9 @@ function NovoPartoDialog({ open, onClose }: { open: boolean; onClose: () => void
           </Select>
         </FormRow>
       </div>
+      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
+        O bezerro é criado automaticamente no Rebanho (lote da matriz) e registrado no livro de movimentação.
+      </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
         <Button onClick={salvar}>Salvar</Button>
@@ -225,13 +252,19 @@ function NovoDesmameDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const [brinco, setBrinco] = useState('')
   const [peso, setPeso] = useState('195')
   const [loteId, setLoteId] = useState('R1')
+  const [erro, setErro] = useState('')
 
   const salvar = () => {
     if (!brinco) return
     const parto = partos.find((p) => p.bezerroBrinco === brinco)
     const idade = parto ? Math.max(1, Math.round((new Date(data).getTime() - new Date(parto.data).getTime()) / 86400000)) : 210
-    addDesmame({ data, bezerroBrinco: brinco, peso: Number(peso), idadeDias: idade, loteDestinoId: loteId })
-    setBrinco('')
+    const r = addDesmame({ data, bezerroBrinco: brinco.trim(), peso: Number(peso), idadeDias: idade, loteDestinoId: loteId })
+    if (!r.ok) {
+      setErro(r.erro ?? 'Não foi possível registrar o desmame.')
+      return
+    }
+    toast(`Desmame registrado — ${brinco.trim()} transferido para o lote de recria.`)
+    setBrinco(''); setErro('')
     onClose()
   }
 
@@ -249,6 +282,14 @@ function NovoDesmameDialog({ open, onClose }: { open: boolean; onClose: () => vo
           </Select>
         </FormRow>
       </div>
+      {erro && (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">
+          {erro}
+        </p>
+      )}
+      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
+        O animal é movido para o lote de destino e a pesagem do desmame entra na ficha individual.
+      </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
         <Button onClick={salvar}>Salvar</Button>

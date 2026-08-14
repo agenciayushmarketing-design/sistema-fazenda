@@ -24,22 +24,24 @@ interface Actions {
   addAnimal: (a: Animal, mov?: Omit<Movimentacao, 'id'>) => void
   updateAnimal: (id: string, patch: Partial<Animal>) => void
   removeAnimal: (id: string, motivo: 'morte' | 'venda') => void
+  addPesagemAnimal: (id: string, pes: Pesagem) => void
+  addMovimentacao: (m: Omit<Movimentacao, 'id'>) => void
 
-  // Cria
+  // Cria — mutações mantêm as identidades do seed (parto cria o animal, etc.)
   addParto: (p: Omit<Parto, 'id'>) => void
-  removeParto: (id: string) => void
-  addDesmame: (d: Omit<Desmame, 'id'>) => void
+  removeParto: (id: string) => { ok: boolean; erro?: string }
+  addDesmame: (d: Omit<Desmame, 'id'>) => { ok: boolean; erro?: string }
 
   // Recria
   addPesagemLote: (loteId: string, pes: Pesagem) => void
 
   // Reprodução
-  addProtocolo: (p: Omit<ProtocoloIATF, 'id'>) => void
+  addProtocolo: (p: Omit<ProtocoloIATF, 'id'>) => { ok: boolean; erro?: string }
   addDiagnostico: (d: Omit<DiagnosticoGestacao, 'id'>) => void
   updateDiagnostico: (id: string, patch: Partial<DiagnosticoGestacao>) => void
 
   // Estoque
-  addSaidaEstoque: (m: Omit<MovEstoque, 'id' | 'tipo'>) => void
+  addSaidaEstoque: (m: Omit<MovEstoque, 'id' | 'tipo'>) => { ok: boolean; erro?: string }
   updateItemEstoque: (id: string, patch: { minimo?: number }) => void
 
   // Compras
@@ -56,7 +58,7 @@ const nid = (prefix: string) => `${prefix}-${++seq}`
 
 export const useStore = create<Store>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...buildSeed(),
 
       resetDemo: () => {
@@ -103,30 +105,106 @@ export const useStore = create<Store>()(
           }
         }),
 
-      addParto: (p) =>
+      addPesagemAnimal: (id, pes) =>
         set((s) => ({
-          partos: [...s.partos, { id: nid('PT'), ...p }],
-          movimentacoes: [
-            ...s.movimentacoes,
-            {
-              id: nid('MV'),
-              data: p.data,
-              tipo: 'nascimento' as const,
-              brinco: p.bezerroBrinco,
-              categoria: p.sexo === 'M' ? ('bezerro' as const) : ('bezerra' as const),
-              quantidade: 1,
-              destino: 'Rebanho de cria',
-              obs: `Matriz ${p.matrizBrinco}`,
-            },
-          ],
+          animais: s.animais.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  pesagens: [...a.pesagens, pes].sort((x, y) => x.data.localeCompare(y.data)),
+                  pesoAtual: pes.peso,
+                }
+              : a,
+          ),
         })),
 
-      removeParto: (id) =>
-        set((s) => ({ partos: s.partos.filter((p) => p.id !== id) })),
+      addMovimentacao: (m) =>
+        set((s) => ({ movimentacoes: [...s.movimentacoes, { id: nid('MV'), ...m }] })),
 
-      addDesmame: (d) =>
-        set((s) => ({
+      // Parto cria o bezerro no Rebanho: inventário e livro permanecem coerentes
+      addParto: (p) =>
+        set((s) => {
+          const matriz = s.animais.find((a) => a.brinco === p.matrizBrinco && a.status === 'ativo')
+          const bezerro: Animal = {
+            id: nid('A'),
+            brinco: p.bezerroBrinco,
+            sexo: p.sexo,
+            categoria: p.sexo === 'M' ? 'bezerro' : 'bezerra',
+            raca: matriz?.raca ?? 'Nelore',
+            nascimento: p.data,
+            loteId: matriz?.loteId ?? 'L-SR',
+            maeBrinco: p.matrizBrinco,
+            pesoAtual: p.pesoNascer,
+            pesagens: [{ data: p.data, peso: p.pesoNascer }],
+            sanitario: [],
+            status: 'ativo',
+          }
+          return {
+            partos: [...s.partos, { id: nid('PT'), ...p }],
+            animais: [...s.animais, bezerro],
+            movimentacoes: [
+              ...s.movimentacoes,
+              {
+                id: nid('MV'),
+                data: p.data,
+                tipo: 'nascimento' as const,
+                brinco: p.bezerroBrinco,
+                categoria: bezerro.categoria,
+                quantidade: 1,
+                destino: 'Rebanho de cria',
+                obs: `Matriz ${p.matrizBrinco}`,
+              },
+            ],
+            fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas + 1 },
+          }
+        }),
+
+      // Cascata: remove também o animal e a movimentação de nascimento.
+      // Bloqueia se houver desmame vinculado (removeria histórico rastreável).
+      removeParto: (id) => {
+        const s = get()
+        const parto = s.partos.find((p) => p.id === id)
+        if (!parto) return { ok: false, erro: 'Parto não encontrado.' }
+        if (s.desmames.some((d) => d.bezerroBrinco === parto.bezerroBrinco)) {
+          return { ok: false, erro: 'Este bezerro já tem desmame registrado — exclua o histórico vinculado antes.' }
+        }
+        const animal = s.animais.find((a) => a.brinco === parto.bezerroBrinco && a.status === 'ativo')
+        set({
+          partos: s.partos.filter((p) => p.id !== id),
+          animais: animal ? s.animais.filter((a) => a.id !== animal.id) : s.animais,
+          movimentacoes: s.movimentacoes.filter(
+            (m) => !(m.tipo === 'nascimento' && m.brinco === parto.bezerroBrinco),
+          ),
+          fazenda: animal
+            ? { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - 1 }
+            : s.fazenda,
+        })
+        return { ok: true }
+      },
+
+      // Desmame move o animal para o lote de destino e registra a pesagem
+      addDesmame: (d) => {
+        const s = get()
+        const animal = s.animais.find((a) => a.brinco === d.bezerroBrinco && a.status === 'ativo')
+        if (!animal) return { ok: false, erro: `Animal ${d.bezerroBrinco} não encontrado no rebanho ativo.` }
+        if (s.desmames.some((x) => x.bezerroBrinco === d.bezerroBrinco)) {
+          return { ok: false, erro: `${d.bezerroBrinco} já tem desmame registrado.` }
+        }
+        const loteNome = s.lotes.find((l) => l.id === d.loteDestinoId)?.nome ?? d.loteDestinoId
+        set({
           desmames: [...s.desmames, { id: nid('DS'), ...d }],
+          animais: s.animais.map((a) =>
+            a.id === animal.id
+              ? {
+                  ...a,
+                  loteId: d.loteDestinoId,
+                  pesoAtual: d.peso,
+                  pesagens: [...a.pesagens, { data: d.data, peso: d.peso }].sort((x, y) =>
+                    x.data.localeCompare(y.data),
+                  ),
+                }
+              : a,
+          ),
           movimentacoes: [
             ...s.movimentacoes,
             {
@@ -134,13 +212,15 @@ export const useStore = create<Store>()(
               data: d.data,
               tipo: 'desmame' as const,
               brinco: d.bezerroBrinco,
-              categoria: 'bezerro' as const,
+              categoria: animal.categoria,
               quantidade: 1,
               origem: 'Rebanho de cria',
-              destino: d.loteDestinoId,
+              destino: loteNome,
             },
           ],
-        })),
+        })
+        return { ok: true }
+      },
 
       addPesagemLote: (loteId, pes) =>
         set((s) => ({
@@ -149,8 +229,34 @@ export const useStore = create<Store>()(
           ),
         })),
 
-      addProtocolo: (p) =>
-        set((s) => ({ protocolosIATF: [...s.protocolosIATF, { id: nid('IATF'), ...p }] })),
+      // Protocolo IATF dá baixa das doses no estoque de sêmen (identidade doses = saída)
+      addProtocolo: (p) => {
+        const s = get()
+        const item = s.estoque.find((i) => i.id === p.semenItemId)
+        if (!item) return { ok: false, erro: 'Sêmen não encontrado no estoque.' }
+        if (item.saldo < p.doses) {
+          return { ok: false, erro: `Saldo insuficiente de ${item.nome}: ${item.saldo} doses disponíveis.` }
+        }
+        set({
+          protocolosIATF: [...s.protocolosIATF, { id: nid('IATF'), ...p }],
+          movEstoque: [
+            ...s.movEstoque,
+            {
+              id: nid('ME'),
+              data: p.dataIA,
+              itemId: p.semenItemId,
+              tipo: 'saida' as const,
+              quantidade: p.doses,
+              loteDestino: p.nome,
+              obs: `IATF — ${p.touroSemen}`,
+            },
+          ],
+          estoque: s.estoque.map((i) =>
+            i.id === p.semenItemId ? { ...i, saldo: i.saldo - p.doses } : i,
+          ),
+        })
+        return { ok: true }
+      },
 
       addDiagnostico: (d) =>
         set((s) => ({ diagnosticos: [...s.diagnosticos, { id: nid('DG'), ...d }] })),
@@ -160,13 +266,25 @@ export const useStore = create<Store>()(
           diagnosticos: s.diagnosticos.map((d) => (d.id === id ? { ...d, ...patch } : d)),
         })),
 
-      addSaidaEstoque: (m) =>
-        set((s) => ({
+      // Saída de consumo valida saldo — estoque nunca fica negativo
+      addSaidaEstoque: (m) => {
+        const s = get()
+        const item = s.estoque.find((i) => i.id === m.itemId)
+        if (!item) return { ok: false, erro: 'Insumo não encontrado.' }
+        if (m.quantidade > item.saldo) {
+          return {
+            ok: false,
+            erro: `Saldo insuficiente: ${item.saldo.toLocaleString('pt-BR')} ${item.unidade} disponíveis.`,
+          }
+        }
+        set({
           movEstoque: [...s.movEstoque, { id: nid('ME'), tipo: 'saida' as const, ...m }],
           estoque: s.estoque.map((it) =>
             it.id === m.itemId ? { ...it, saldo: it.saldo - m.quantidade } : it,
           ),
-        })),
+        })
+        return { ok: true }
+      },
 
       updateItemEstoque: (id, patch) =>
         set((s) => ({

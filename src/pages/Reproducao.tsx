@@ -6,13 +6,15 @@ import { Plus } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, ChartCard, FormRow } from '@/components/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TablePagination } from '@/components/ui/table'
+import { usePagination } from '@/hooks/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
+import { toast } from '@/components/ui/toast'
 import { metricasReproducao } from '@/lib/metrics'
 import { addDays } from '@/data/seed'
 import { fmtBRL, fmtDate, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
@@ -23,9 +25,11 @@ export default function Reproducao() {
   const updateDiagnostico = useStore((s) => s.updateDiagnostico)
   const m = metricasReproducao(state)
   const [dgOpen, setDgOpen] = useState(false)
+  const [protoOpen, setProtoOpen] = useState(false)
 
   const dgsPendentes = state.diagnosticos.filter((d) => d.resultado === 'pendente')
   const dgsFeitos = state.diagnosticos.filter((d) => d.resultado !== 'pendente')
+  const dgsPag = usePagination(dgsFeitos, 50)
 
   return (
     <div>
@@ -33,9 +37,14 @@ export default function Reproducao() {
         title="Reprodução"
         subtitle={m.estacao ? `${m.estacao.nome} · ${fmtDate(m.estacao.inicio)} — ${fmtDate(m.estacao.fim)}` : 'Estação de monta'}
         actions={
-          <Button onClick={() => setDgOpen(true)}>
-            <Plus className="h-3.5 w-3.5" /> Lançar diagnóstico
-          </Button>
+          <>
+            <Button variant="secondary" onClick={() => setProtoOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> Novo protocolo IATF
+            </Button>
+            <Button onClick={() => setDgOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> Lançar diagnóstico
+            </Button>
+          </>
         }
       />
 
@@ -44,7 +53,7 @@ export default function Reproducao() {
         <StatCard label="Prenhez acumulada" value={fmtPct(m.prenhezFinalPct)} detail={`${m.prenhasTotal}/${m.expostas} expostas`} />
         <StatCard label="Prenhez de repasse" value={fmtNum(m.prenhasTouro)} detail="confirmadas por touro" />
         <StatCard label="DG pendente" value={fmtNum(m.pendentes)} detail="matrizes sem diagnóstico" tone={m.pendentes > 0 ? 'warning' : undefined} />
-        <StatCard label="ECC médio das matrizes" value={fmtNum1(3.1)} detail="escore 1–5" />
+        <StatCard label="ECC médio das matrizes" value={fmtNum1(m.eccMedio)} detail="média das matrizes ativas (1–5)" />
         <StatCard label="Custo por prenhez" value={fmtBRL(m.custoPorPrenhez)} detail="sêmen + hormônios" />
       </div>
 
@@ -158,7 +167,7 @@ export default function Reproducao() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {dgsFeitos.slice(0, 150).map((d) => (
+                {dgsPag.pageItems.map((d) => (
                   <TableRow key={d.id}>
                     <TableCell className="tnum">{fmtDate(d.data)}</TableCell>
                     <TableCell className="font-medium">{d.matrizBrinco}</TableCell>
@@ -173,11 +182,7 @@ export default function Reproducao() {
                 ))}
               </TableBody>
             </Table>
-            {dgsFeitos.length > 150 && (
-              <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
-                Exibindo 150 de {fmtNum(dgsFeitos.length)} diagnósticos.
-              </div>
-            )}
+            <TablePagination {...dgsPag} />
           </div>
         </TabsContent>
 
@@ -201,7 +206,7 @@ export default function Reproducao() {
                         <Button
                           size="sm"
                           variant="secondary"
-                          onClick={() =>
+                          onClick={() => {
                             updateDiagnostico(d.id, {
                               resultado: 'prenha',
                               data: hojeISO(),
@@ -209,14 +214,18 @@ export default function Reproducao() {
                               dataConcepcao: addDays(hojeISO(), -45),
                               dppEstimado: addDays(hojeISO(), 283 - 45),
                             })
-                          }
+                            toast(`DG de ${d.matrizBrinco}: prenha (repasse).`)
+                          }}
                         >
                           Prenha
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => updateDiagnostico(d.id, { resultado: 'vazia', data: hojeISO() })}
+                          onClick={() => {
+                            updateDiagnostico(d.id, { resultado: 'vazia', data: hojeISO() })
+                            toast(`DG de ${d.matrizBrinco}: vazia.`)
+                          }}
                         >
                           Vazia
                         </Button>
@@ -234,7 +243,90 @@ export default function Reproducao() {
       </Tabs>
 
       <NovoDGDialog open={dgOpen} onClose={() => setDgOpen(false)} />
+      <NovoProtocoloDialog open={protoOpen} onClose={() => setProtoOpen(false)} />
     </div>
+  )
+}
+
+function NovoProtocoloDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { estoque, addProtocolo } = useStore()
+  const semens = estoque.filter((i) => i.categoria === 'semen')
+  const [nome, setNome] = useState('IATF Lote 4')
+  const [loteDescricao, setLoteDescricao] = useState('Vacas paridas')
+  const [d0, setD0] = useState(hojeISO())
+  const [produto, setProduto] = useState('Sincrogest + eCG')
+  const [inseminador, setInseminador] = useState('Carlos Mendes')
+  const [semenId, setSemenId] = useState(semens[0]?.id ?? '')
+  const [matrizes, setMatrizes] = useState('')
+  const [erro, setErro] = useState('')
+
+  const salvar = () => {
+    const n = Number(matrizes)
+    if (!nome || !semenId || !n || n <= 0) return
+    const semen = estoque.find((i) => i.id === semenId)
+    const r = addProtocolo({
+      nome,
+      loteDescricao,
+      dataInicio: d0,
+      dataIA: addDays(d0, 10),
+      produto,
+      inseminador,
+      touroSemen: semen?.nome.replace('Sêmen ', '') ?? semenId,
+      semenItemId: semenId,
+      doses: n,
+      matrizes: n,
+    })
+    if (!r.ok) {
+      setErro(r.erro ?? 'Não foi possível criar o protocolo.')
+      return
+    }
+    toast(`Protocolo ${nome} criado — ${n} doses baixadas do estoque de sêmen.`)
+    setMatrizes(''); setErro('')
+    onClose()
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Novo protocolo IATF">
+      <div className="grid grid-cols-2 gap-3">
+        <FormRow label="Nome do protocolo">
+          <Input value={nome} onChange={(e) => setNome(e.target.value)} />
+        </FormRow>
+        <FormRow label="Lote de matrizes">
+          <Input value={loteDescricao} onChange={(e) => setLoteDescricao(e.target.value)} />
+        </FormRow>
+        <FormRow label="Data D0">
+          <Input type="date" value={d0} onChange={(e) => setD0(e.target.value)} />
+        </FormRow>
+        <FormRow label="Produto (protocolo hormonal)">
+          <Input value={produto} onChange={(e) => setProduto(e.target.value)} />
+        </FormRow>
+        <FormRow label="Inseminador">
+          <Input value={inseminador} onChange={(e) => setInseminador(e.target.value)} />
+        </FormRow>
+        <FormRow label="Touro / sêmen">
+          <Select value={semenId} onChange={(e) => setSemenId(e.target.value)}>
+            {semens.map((i) => (
+              <option key={i.id} value={i.id}>{i.nome} — saldo {i.saldo} doses</option>
+            ))}
+          </Select>
+        </FormRow>
+        <FormRow label="Matrizes (= doses)">
+          <Input type="number" value={matrizes} onChange={(e) => setMatrizes(e.target.value)} placeholder="120" />
+        </FormRow>
+      </div>
+      {erro && (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">
+          {erro}
+        </p>
+      )}
+      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
+        A IA é agendada para D0 + 10 e as doses geram saída automática no Estoque de sêmen.
+      </p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+        <Button onClick={salvar}>Criar protocolo</Button>
+      </div>
+    </Dialog>
   )
 }
 
@@ -256,6 +348,7 @@ function NovoDGDialog({ open, onClose }: { open: boolean; onClose: () => void })
       dppEstimado: resultado === 'prenha' ? addDays(concepcao, 283) : undefined,
       estacaoId: estacoes.find((e) => e.status === 'em_andamento')?.id ?? 'EM-2526',
     })
+    toast(`Diagnóstico de ${matriz} registrado: ${resultado === 'prenha' ? 'prenha' : 'vazia'}.`)
     setMatriz('')
     onClose()
   }

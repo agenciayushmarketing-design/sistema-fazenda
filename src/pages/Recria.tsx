@@ -11,7 +11,8 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
-import { gmdMedioRecria } from '@/lib/metrics'
+import { toast } from '@/components/ui/toast'
+import { gmdMedioRecria, qtdLoteRecria } from '@/lib/metrics'
 import { addDays, diffDays } from '@/data/seed'
 import { fmtDate, fmtGMD, fmtKg1, fmtNum, hojeISO } from '@/lib/format'
 import { SERIES, GRID, MUTED_INK, axisProps, tooltipStyle } from '@/lib/chart'
@@ -43,7 +44,8 @@ export default function Recria() {
 
   const gmdMedio = gmdMedioRecria(state)
   const ranking = [...state.lotesRecria].sort((a, b) => gmdUltimos3(b) - gmdUltimos3(a))
-  const totalCab = state.lotesRecria.reduce((s, l) => s + l.qtd, 0)
+  // contagem real: animais ativos alocados nos lotes (acompanha desmames/saídas feitos na demo)
+  const totalCab = state.lotesRecria.reduce((s, l) => s + qtdLoteRecria(state.animais, l.id), 0)
 
   const lote = state.lotesRecria.find((l) => l.id === loteSel) ?? state.lotesRecria[0]
 
@@ -114,7 +116,7 @@ export default function Recria() {
                   <TableCell className="tnum text-muted-foreground">{i + 1}º</TableCell>
                   <TableCell className="font-medium">{l.nome}</TableCell>
                   <TableCell className="text-muted-foreground">{pasto?.nome}</TableCell>
-                  <TableCell className="tnum text-right">{l.qtd}</TableCell>
+                  <TableCell className="tnum text-right">{qtdLoteRecria(state.animais, l.id)}</TableCell>
                   <TableCell className="tnum">{fmtDate(l.dataEntrada)}</TableCell>
                   <TableCell className="tnum text-right">{fmtKg1(l.pesoEntrada)}</TableCell>
                   <TableCell className="tnum text-right font-semibold">{atual ? fmtKg1(atual.peso) : '—'}</TableCell>
@@ -177,6 +179,7 @@ function NovaPesagemDialog({ open, onClose }: { open: boolean; onClose: () => vo
   const salvar = () => {
     if (!loteId || !peso) return
     addPesagemLote(loteId, { data, peso: Number(peso) })
+    toast(`Pesagem do lote registrada: ${Number(peso).toLocaleString('pt-BR')} kg médio.`)
     setPeso('')
     onClose()
   }

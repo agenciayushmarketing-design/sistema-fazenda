@@ -2,18 +2,22 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import { useStore } from '@/store/useStore'
-import { PageHeader } from '@/components/shared'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { PageHeader, FormRow } from '@/components/shared'
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  SortableHead, TablePagination,
+} from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Dialog } from '@/components/ui/dialog'
-import { FormRow } from '@/components/shared'
-import { CATEGORIA_LABEL, type Animal, type Categoria } from '@/data/types'
+import { toast } from '@/components/ui/toast'
+import { useTableSort, usePagination } from '@/hooks/table'
+import { CATEGORIA_LABEL, type Animal, type Categoria, type Movimentacao } from '@/data/types'
 import { inventarioPorCategoria, ativos } from '@/lib/metrics'
-import { fmtDate, fmtIdade, fmtKg, fmtNum, hojeISO } from '@/lib/format'
+import { fmtDate, fmtIdade, fmtKg, fmtNum, hojeISO, idadeMeses } from '@/lib/format'
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   nascimento: 'Nascimento',
@@ -25,6 +29,32 @@ const TIPO_MOV_LABEL: Record<string, string> = {
   desmame: 'Desmame',
 }
 
+const FAIXAS_IDADE = [
+  { id: '', label: 'Todas as idades' },
+  { id: '0-12', label: '0–12 meses' },
+  { id: '13-24', label: '13–24 meses' },
+  { id: '25-36', label: '25–36 meses' },
+  { id: '37+', label: 'Acima de 36 meses' },
+]
+
+const ANIMAL_SORT = {
+  brinco: (a: Animal) => a.brinco,
+  categoria: (a: Animal) => CATEGORIA_LABEL[a.categoria],
+  sexo: (a: Animal) => a.sexo,
+  raca: (a: Animal) => a.raca,
+  idade: (a: Animal) => a.nascimento,
+  lote: (a: Animal) => a.loteId,
+  peso: (a: Animal) => a.pesoAtual,
+}
+
+const MOV_SORT = {
+  data: (m: Movimentacao) => m.data,
+  tipo: (m: Movimentacao) => TIPO_MOV_LABEL[m.tipo],
+  brinco: (m: Movimentacao) => m.brinco,
+  categoria: (m: Movimentacao) => CATEGORIA_LABEL[m.categoria],
+  qtd: (m: Movimentacao) => m.quantidade,
+}
+
 export default function Rebanho() {
   const state = useStore()
   const inv = inventarioPorCategoria(state.animais)
@@ -33,6 +63,7 @@ export default function Rebanho() {
   const [filtroLote, setFiltroLote] = useState('')
   const [filtroBrinco, setFiltroBrinco] = useState('')
   const [filtroRaca, setFiltroRaca] = useState('')
+  const [filtroIdade, setFiltroIdade] = useState('')
   const [novoOpen, setNovoOpen] = useState(false)
 
   const animaisFiltrados = useMemo(() => {
@@ -41,7 +72,22 @@ export default function Rebanho() {
       .filter((a) => !filtroLote || a.loteId === filtroLote)
       .filter((a) => !filtroRaca || a.raca === filtroRaca)
       .filter((a) => !filtroBrinco || a.brinco.toLowerCase().includes(filtroBrinco.toLowerCase()))
-  }, [state.animais, filtroCat, filtroLote, filtroBrinco, filtroRaca])
+      .filter((a) => {
+        if (!filtroIdade) return true
+        const m = idadeMeses(a.nascimento)
+        if (filtroIdade === '0-12') return m <= 12
+        if (filtroIdade === '13-24') return m >= 13 && m <= 24
+        if (filtroIdade === '25-36') return m >= 25 && m <= 36
+        return m > 36
+      })
+  }, [state.animais, filtroCat, filtroLote, filtroBrinco, filtroRaca, filtroIdade])
+
+  const animalSort = useTableSort(animaisFiltrados, ANIMAL_SORT, { key: 'brinco', dir: 1 })
+  const animalPag = usePagination(animalSort.sorted, 50)
+
+  const movsOrdem = useMemo(() => [...state.movimentacoes].reverse(), [state.movimentacoes])
+  const movSort = useTableSort(movsOrdem, MOV_SORT)
+  const movPag = usePagination(movSort.sorted, 50)
 
   const loteNome = (id: string) => state.lotes.find((l) => l.id === id)?.nome ?? id
 
@@ -105,23 +151,28 @@ export default function Rebanho() {
               <option value="Nelore PO">Nelore PO</option>
               <option value="Nelore">Nelore</option>
             </Select>
+            <Select value={filtroIdade} onChange={(e) => setFiltroIdade(e.target.value)} className="w-44">
+              {FAIXAS_IDADE.map((f) => (
+                <option key={f.id} value={f.id}>{f.label}</option>
+              ))}
+            </Select>
           </div>
 
           <div className="rounded-lg border bg-card">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Brinco</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead>Sexo</TableHead>
-                  <TableHead>Raça</TableHead>
-                  <TableHead>Idade</TableHead>
-                  <TableHead>Lote</TableHead>
-                  <TableHead className="text-right">Peso atual</TableHead>
+                  <SortableHead label="Brinco" sortKey="brinco" sort={animalSort.sort} onToggle={animalSort.toggle} />
+                  <SortableHead label="Categoria" sortKey="categoria" sort={animalSort.sort} onToggle={animalSort.toggle} />
+                  <SortableHead label="Sexo" sortKey="sexo" sort={animalSort.sort} onToggle={animalSort.toggle} />
+                  <SortableHead label="Raça" sortKey="raca" sort={animalSort.sort} onToggle={animalSort.toggle} />
+                  <SortableHead label="Idade" sortKey="idade" sort={animalSort.sort} onToggle={animalSort.toggle} />
+                  <SortableHead label="Lote" sortKey="lote" sort={animalSort.sort} onToggle={animalSort.toggle} />
+                  <SortableHead label="Peso atual" sortKey="peso" sort={animalSort.sort} onToggle={animalSort.toggle} align="right" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {animaisFiltrados.slice(0, 200).map((a) => (
+                {animalPag.pageItems.map((a) => (
                   <TableRow key={a.id}>
                     <TableCell>
                       <Link to={`/rebanho/${a.id}`} className="font-medium text-primary hover:underline">
@@ -138,11 +189,7 @@ export default function Rebanho() {
                 ))}
               </TableBody>
             </Table>
-            {animaisFiltrados.length > 200 && (
-              <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
-                Exibindo 200 de {fmtNum(animaisFiltrados.length)} animais — refine os filtros.
-              </div>
-            )}
+            <TablePagination {...animalPag} />
           </div>
         </TabsContent>
 
@@ -151,18 +198,18 @@ export default function Rebanho() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Data</TableHead>
-                  <TableHead>Tipo</TableHead>
-                  <TableHead>Brinco / lote</TableHead>
-                  <TableHead>Categoria</TableHead>
-                  <TableHead className="text-right">Qtd</TableHead>
+                  <SortableHead label="Data" sortKey="data" sort={movSort.sort} onToggle={movSort.toggle} />
+                  <SortableHead label="Tipo" sortKey="tipo" sort={movSort.sort} onToggle={movSort.toggle} />
+                  <SortableHead label="Brinco / lote" sortKey="brinco" sort={movSort.sort} onToggle={movSort.toggle} />
+                  <SortableHead label="Categoria" sortKey="categoria" sort={movSort.sort} onToggle={movSort.toggle} />
+                  <SortableHead label="Qtd" sortKey="qtd" sort={movSort.sort} onToggle={movSort.toggle} align="right" />
                   <TableHead>Origem</TableHead>
                   <TableHead>Destino</TableHead>
                   <TableHead>Obs.</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {[...state.movimentacoes].reverse().slice(0, 300).map((m) => (
+                {movPag.pageItems.map((m) => (
                   <TableRow key={m.id}>
                     <TableCell className="tnum">{fmtDate(m.data)}</TableCell>
                     <TableCell>
@@ -188,6 +235,7 @@ export default function Rebanho() {
                 ))}
               </TableBody>
             </Table>
+            <TablePagination {...movPag} />
           </div>
         </TabsContent>
       </Tabs>
@@ -232,6 +280,7 @@ function NovoAnimalDialog({ open, onClose }: { open: boolean; onClose: () => voi
       destino: lotes.find((l) => l.id === loteId)?.nome,
       obs: 'Cadastro manual',
     })
+    toast(`Animal ${brinco} cadastrado no rebanho.`)
     setBrinco(''); setPeso(''); setNascimento('')
     onClose()
   }
