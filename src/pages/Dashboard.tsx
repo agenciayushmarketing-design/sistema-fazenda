@@ -1,10 +1,11 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, Cell,
 } from 'recharts'
 import type { TooltipProps } from 'recharts'
-import { AlertTriangle, ChevronRight, OctagonAlert } from 'lucide-react'
+import { AlertTriangle, ArrowRight, ChevronRight, OctagonAlert, Sparkles, X } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, ChartCard } from '@/components/shared'
 import { CATEGORIA_LABEL, type Categoria } from '@/data/types'
@@ -17,6 +18,56 @@ import { fmtBRL, fmtGMD, fmtMesAno, fmtNum, fmtNum1, fmtNum2, fmtPct, fmtDateSho
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
 import { diffDays, PERFIL_INFO } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
+import type { PerfilDemo } from '@/data/types'
+
+/** Banner de apresentação do perfil — orienta o cliente sobre o que olhar primeiro */
+function BannerPerfil({ perfil }: { perfil: PerfilDemo }) {
+  const chave = `demo-banner-${perfil}`
+  const [visivel, setVisivel] = useState(() => {
+    try {
+      return localStorage.getItem(chave) !== 'fechado'
+    } catch {
+      return true
+    }
+  })
+  if (!visivel) return null
+  const info = PERFIL_INFO[perfil]
+  return (
+    <div className="relative mb-3 rounded-lg border border-blue-200 bg-blue-50/70 px-4 py-3">
+      <button
+        onClick={() => {
+          setVisivel(false)
+          try {
+            localStorage.setItem(chave, 'fechado')
+          } catch {
+            /* sem storage, só esconde */
+          }
+        }}
+        aria-label="Fechar apresentação"
+        className="absolute right-2 top-2 rounded p-1 text-blue-900/50 hover:bg-blue-100 hover:text-blue-900"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+      <div className="flex items-center gap-1.5 text-[13px] font-semibold text-blue-950">
+        <Sparkles className="h-3.5 w-3.5" />
+        Perfil {info.nome}
+      </div>
+      <p className="mt-0.5 max-w-3xl text-xs leading-relaxed text-blue-900">{info.boasVindas}</p>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {info.destaques.map((d) => (
+          <Link
+            key={d.rotulo}
+            to={d.link}
+            className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2 py-1 text-[11px] font-medium text-blue-900 hover:bg-blue-100"
+          >
+            {d.rotulo}
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 /** Tooltip da evolução com total do mês ao final */
 function EvolucaoTooltip({ active, payload, label }: TooltipProps<number, string>) {
@@ -87,25 +138,37 @@ export default function Dashboard() {
         subtitle={`${state.fazenda.nome} — ${PERFIL_INFO[state.perfil].descricao}`}
       />
 
+      <BannerPerfil perfil={state.perfil} />
+
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
-        <StatCard label="Total de cabeças" value={fmtNum(total)} detail="animais ativos" />
-        <StatCard label="UA total" value={fmtNum1(ua)} detail="1 UA = 450 kg PV" />
-        <StatCard label="Lotação" value={`${fmtNum2(ua / state.fazenda.areaHa)} UA/ha`} detail={`${fmtNum(state.fazenda.areaHa)} ha úteis`} />
-        <StatCard label="Taxa de prenhez" value={fmtPct(repro.prenhezFinalPct)} detail={`${repro.prenhasTotal}/${repro.expostas} expostas · ${repro.pendentes} DG pendentes`} />
-        <StatCard label="Taxa de desmame" value={fmtPct(cria.taxaDesmamePct)} detail="projetada, safra atual" />
+        <StatCard label="Total de cabeças" value={fmtNum(total)} detail="animais ativos"
+          hint="Todos os animais vivos na fazenda hoje, somando as categorias do Rebanho." />
+        <StatCard label="UA total" value={fmtNum1(ua)} detail="1 UA = 450 kg PV"
+          hint="Unidade Animal: o peso vivo do rebanho dividido por 450 kg. É a medida usada para dimensionar pasto." />
+        <StatCard label="Lotação" value={`${fmtNum2(ua / state.fazenda.areaHa)} UA/ha`} detail={`${fmtNum(state.fazenda.areaHa)} ha úteis`}
+          hint="Quantas Unidades Animais por hectare. Acima da capacidade do pasto, vira alerta." />
+        <StatCard label="Taxa de prenhez" value={fmtPct(repro.prenhezFinalPct)} detail={`${repro.prenhasTotal}/${repro.expostas} expostas · ${repro.pendentes} DG pendentes`}
+          hint="Matrizes confirmadas prenhas dividido pelas expostas na estação de monta atual." />
+        <StatCard label="Taxa de desmame" value={fmtPct(cria.taxaDesmamePct)} detail="projetada, safra atual"
+          hint="Bezerros vivos da safra dividido pelas matrizes expostas — projeção até o fim do desmame." />
         {temRecria ? (
           <>
-            <StatCard label="GMD médio recria" value={fmtGMD(gmd)} detail="ponderado por lote" />
-            <StatCard label="Custo / @ produzida" value={fmtBRL(custoArroba)} detail={`${fmtNum1(arrobas)} @ no período`} />
+            <StatCard label="GMD médio recria" value={fmtGMD(gmd)} detail="ponderado por lote"
+              hint="Ganho Médio Diário de peso dos lotes de recria, ponderado pelo tamanho de cada lote." />
+            <StatCard label="Custo / @ produzida" value={fmtBRL(custoArroba)} detail={`${fmtNum1(arrobas)} @ no período`}
+              hint="Custos das compras recebidas divididos pelas arrobas de peso vivo ganhas na recria e terminação." />
           </>
         ) : (
           <>
-            <StatCard label="Natalidade" value={fmtPct(cria.natalidadePct)} detail={`${cria.partos} partos na safra`} />
-            <StatCard label="Apartações em 90 dias" value={fmtNum(apartar90)} detail="bezerros no ponto de 8 meses" tone={apartar90 > 0 ? 'warning' : undefined} />
+            <StatCard label="Natalidade" value={fmtPct(cria.natalidadePct)} detail={`${cria.partos} partos na safra`}
+              hint="Partos registrados dividido pelas matrizes expostas na estação passada." />
+            <StatCard label="Apartações em 90 dias" value={fmtNum(apartar90)} detail="bezerros no ponto de 8 meses" tone={apartar90 > 0 ? 'warning' : undefined}
+              hint="Bezerros ao pé da vaca que completam 8 meses nos próximos 90 dias — hora de planejar a apartação." />
           </>
         )}
         {leite && (
-          <StatCard label="Leite — média 7 dias" value={`${fmtNum(Math.round(leite.media7dias))} L/dia`} detail={`${leite.vacasLactacao} vacas em lactação`} />
+          <StatCard label="Leite — média 7 dias" value={`${fmtNum(Math.round(leite.media7dias))} L/dia`} detail={`${leite.vacasLactacao} vacas em lactação`}
+            hint="Média diária de leite no tanque nos últimos 7 dias." />
         )}
       </div>
 

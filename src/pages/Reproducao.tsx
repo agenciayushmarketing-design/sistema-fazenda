@@ -287,7 +287,7 @@ function NovoProtocoloDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   return (
     <Dialog open={open} onClose={onClose} title="Novo protocolo IATF">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Nome do protocolo">
           <Input value={nome} onChange={(e) => setNome(e.target.value)} />
         </FormRow>
@@ -355,7 +355,7 @@ function NovoDGDialog({ open, onClose }: { open: boolean; onClose: () => void })
 
   return (
     <Dialog open={open} onClose={onClose} title="Lançar diagnóstico de gestação">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Matriz (brinco)"><Input value={matriz} onChange={(e) => setMatriz(e.target.value)} placeholder="V-0042" /></FormRow>
         <FormRow label="Resultado">
           <Select value={resultado} onChange={(e) => setResultado(e.target.value as 'prenha' | 'vazia')}>

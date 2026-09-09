@@ -133,7 +133,7 @@ function NovaProducaoDialog({ open, onClose }: { open: boolean; onClose: () => v
 
   return (
     <Dialog open={open} onClose={onClose} title="Registrar produção do dia">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Data">
           <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />
         </FormRow>

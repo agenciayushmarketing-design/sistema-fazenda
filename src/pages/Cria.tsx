@@ -329,7 +329,7 @@ function NovoPartoDialog({ open, onClose }: { open: boolean; onClose: () => void
 
   return (
     <Dialog open={open} onClose={onClose} title="Registrar parto">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Data"><Input type="date" value={data} onChange={(e) => setData(e.target.value)} /></FormRow>
         <FormRow label="Matriz (brinco)"><Input value={matriz} onChange={(e) => setMatriz(e.target.value)} placeholder="V-0123" /></FormRow>
         <FormRow label="Brinco do bezerro"><Input value={bezerro} onChange={(e) => setBezerro(e.target.value)} placeholder="BZ-401" /></FormRow>
@@ -383,7 +383,7 @@ function NovoDesmameDialog({ open, onClose }: { open: boolean; onClose: () => vo
 
   return (
     <Dialog open={open} onClose={onClose} title="Registrar desmame">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Data"><Input type="date" value={data} onChange={(e) => setData(e.target.value)} /></FormRow>
         <FormRow label="Brinco do bezerro"><Input value={brinco} onChange={(e) => setBrinco(e.target.value)} placeholder="BZ-023" /></FormRow>
         <FormRow label="Peso ao desmame (kg)"><Input type="number" value={peso} onChange={(e) => setPeso(e.target.value)} /></FormRow>

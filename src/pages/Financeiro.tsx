@@ -243,7 +243,7 @@ function NovoLancamentoDialog({ open, onClose }: { open: boolean; onClose: () =>
 
   return (
     <Dialog open={open} onClose={onClose} title="Novo lançamento">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Tipo">
           <Select value={tipo} onChange={(e) => setTipo(e.target.value as 'receita' | 'despesa')}>
             <option value="despesa">Despesa</option>

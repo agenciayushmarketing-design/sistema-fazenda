@@ -201,7 +201,7 @@ function NovaSaidaDialog({ open, onClose }: { open: boolean; onClose: () => void
 
   return (
     <Dialog open={open} onClose={onClose} title="Registrar saída de estoque">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Insumo">
           <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
             {estoque.map((i) => (

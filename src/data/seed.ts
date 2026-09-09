@@ -737,22 +737,56 @@ export const PERFIS: Record<PerfilDemo, PerfilParams> = {
   corte_leite: PERFIL_CORTE_LEITE,
 }
 
-/** Metadados de apresentação de cada perfil (nome + módulos visíveis na sidebar) */
-export const PERFIL_INFO: Record<PerfilDemo, { nome: string; descricao: string; modulos: string[] }> = {
+/** Metadados de apresentação de cada perfil (nome, módulos da sidebar e destaques do banner) */
+export interface PerfilInfo {
+  nome: string
+  descricao: string
+  modulos: string[]
+  /** frase de abertura do banner do Dashboard */
+  boasVindas: string
+  /** o que mostrar primeiro numa apresentação — vira link no banner */
+  destaques: { rotulo: string; link: string }[]
+}
+
+export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
   ciclo_completo: {
     nome: 'Ciclo completo',
     descricao: 'Nelore, 800 ha, 1.200 cabeças',
     modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/estoque', '/compras', '/financeiro'],
+    boasVindas:
+      'Operação de ciclo completo: da cria à terminação, com estoque, compras e custo por arroba amarrados de ponta a ponta.',
+    destaques: [
+      { rotulo: 'Rebanho de 1.200 cabeças rastreado', link: '/rebanho' },
+      { rotulo: 'GMD e projeções da recria', link: '/recria' },
+      { rotulo: 'IATF e prenhez por terço', link: '/reproducao' },
+      { rotulo: 'Custo/@ e fluxo de caixa', link: '/financeiro' },
+    ],
   },
   cria_120: {
     nome: 'Cria — 120 matrizes',
     descricao: 'Cria pura: partos, IATF, IP e apartação',
+    boasVindas:
+      'Pequena propriedade de cria: 120 matrizes, com tudo que importa na produção de bezerros — sem módulos que você não usa.',
     modulos: ['/', '/rebanho', '/cria', '/reproducao', '/estoque'],
+    destaques: [
+      { rotulo: 'Partos e desmames da safra', link: '/cria' },
+      { rotulo: 'Previsão de apartação aos 8 meses', link: '/cria' },
+      { rotulo: 'IP (intervalo entre partos) por matriz', link: '/cria' },
+      { rotulo: 'IATF e diagnóstico de gestação', link: '/reproducao' },
+    ],
   },
   corte_leite: {
     nome: 'Corte & Leite',
     descricao: 'Completo: financeiro, máquinas, OS e leite',
+    boasVindas:
+      'Fazenda mista de corte e leite com a gestão completa: rebanho, reprodução, financeiro, frota de máquinas e ordens de serviço.',
     modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/leite', '/estoque', '/compras', '/financeiro', '/maquinas', '/os'],
+    destaques: [
+      { rotulo: 'Fluxo de caixa e contas a pagar', link: '/financeiro' },
+      { rotulo: 'Produção de leite diária', link: '/leite' },
+      { rotulo: 'Máquinas, horímetro e manutenção', link: '/maquinas' },
+      { rotulo: 'Ordens de serviço com acompanhamento', link: '/os' },
+    ],
   },
 }
 

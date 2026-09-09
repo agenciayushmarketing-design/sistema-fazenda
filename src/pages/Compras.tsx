@@ -335,8 +335,8 @@ function NovoPedidoDialog({ open, onClose }: { open: boolean; onClose: () => voi
       <div className="mt-3 space-y-1.5">
         <div className="text-xs font-medium text-muted-foreground">Itens do pedido</div>
         {linhas.map((l, i) => (
-          <div key={i} className="flex items-center gap-1.5">
-            <Select value={l.itemId} onChange={(e) => setLinha(i, { itemId: e.target.value })} className="flex-1">
+          <div key={i} className="flex flex-wrap items-center gap-1.5">
+            <Select value={l.itemId} onChange={(e) => setLinha(i, { itemId: e.target.value })} className="w-full sm:w-auto sm:flex-1">
               {estoque.map((it) => (
                 <option key={it.id} value={it.id}>{it.nome}</option>
               ))}
@@ -381,7 +381,7 @@ function NovoPedidoDialog({ open, onClose }: { open: boolean; onClose: () => voi
         <div className="mb-1.5 text-xs font-medium text-muted-foreground">
           Rateio por centro de custo (soma deve ser 100%)
         </div>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(Object.keys(CENTRO_LABEL) as CentroCusto[]).map((c) => (
             <div key={c} className="space-y-1">
               <div className="text-[11px] text-muted-foreground">{CENTRO_LABEL[c]}</div>

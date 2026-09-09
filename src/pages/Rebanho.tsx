@@ -103,7 +103,7 @@ export default function Rebanho() {
         }
       />
 
-      <div className="mb-3 grid grid-cols-4 gap-2 lg:grid-cols-8">
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
         {(Object.entries(inv) as [Categoria, number][]).map(([cat, qtd]) => (
           <button
             key={cat}
@@ -287,7 +287,7 @@ function NovoAnimalDialog({ open, onClose }: { open: boolean; onClose: () => voi
 
   return (
     <Dialog open={open} onClose={onClose} title="Novo animal">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Brinco">
           <Input value={brinco} onChange={(e) => setBrinco(e.target.value)} placeholder="V-0500" />
         </FormRow>

@@ -244,7 +244,7 @@ function NovaOSDialog({ open, onClose }: { open: boolean; onClose: () => void })
 
   return (
     <Dialog open={open} onClose={onClose} title="Nova ordem de serviço">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Título">
           <Input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Reforma da cerca do fundo" />
         </FormRow>

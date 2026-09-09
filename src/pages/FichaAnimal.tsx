@@ -195,7 +195,7 @@ function NovaPesagemInline({ animal }: { animal: Animal }) {
   }
 
   return (
-    <div className="mt-2 flex items-end gap-2 border-t pt-2">
+    <div className="mt-2 flex flex-wrap items-end gap-2 border-t pt-2">
       <FormRow label="Data">
         <Input type="date" value={data} onChange={(e) => setData(e.target.value)} className="w-36" />
       </FormRow>
@@ -255,7 +255,7 @@ function EditarAnimalDialog({ animal, open, onClose }: { animal: Animal; open: b
 
   return (
     <Dialog open={open} onClose={onClose} title={`Editar ${animal.brinco}`}>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Lote">
           <Select value={loteId} onChange={(e) => setLoteId(e.target.value)}>
             {lotes.map((l) => (
@@ -304,7 +304,7 @@ function SaidaAnimalDialog({
 
   return (
     <Dialog open={open} onClose={onClose} title={`Registrar saída — ${animal.brinco}`} className="max-w-md">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Motivo da saída">
           <Select value={motivo} onChange={(e) => setMotivo(e.target.value as 'venda' | 'morte')}>
             <option value="venda">Venda</option>

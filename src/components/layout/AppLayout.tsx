@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
   Beef,
@@ -14,6 +14,8 @@ import {
   Tractor,
   ClipboardList,
   Milk,
+  Menu,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/useStore'
@@ -38,19 +40,101 @@ const NAV = [
   { to: '/os', label: 'Ordens de serviço', icon: ClipboardList },
 ]
 
-export function AppLayout() {
+/** Conteúdo da sidebar — usado no painel fixo (desktop) e no drawer (mobile) */
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const fazenda = useStore((s) => s.fazenda)
   const perfil = useStore((s) => s.perfil)
-  const resetDemo = useStore((s) => s.resetDemo)
-  const setPerfil = useStore((s) => s.setPerfil)
-  const animais = useStore((s) => s.animais)
-  const navigate = useNavigate()
-  const [busca, setBusca] = useState('')
-  const [resetOpen, setResetOpen] = useState(false)
   const [perfilPendente, setPerfilPendente] = useState<PerfilDemo | null>(null)
+  const setPerfil = useStore((s) => s.setPerfil)
+  const navigate = useNavigate()
 
   const info = PERFIL_INFO[perfil]
   const navVisivel = NAV.filter((n) => info.modulos.includes(n.to))
+
+  return (
+    <>
+      <div className="border-b px-4 py-3">
+        <div className="text-sm font-bold leading-tight">{fazenda.nome}</div>
+        <div className="mt-0.5 text-[11px] text-muted-foreground">
+          {fazenda.areaHa} ha · {info.descricao}
+        </div>
+      </div>
+      <div className="border-b px-3 py-2">
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Perfil da demonstração
+        </div>
+        <Select
+          value={perfil}
+          onChange={(e) => {
+            const novo = e.target.value as PerfilDemo
+            if (novo !== perfil) setPerfilPendente(novo)
+          }}
+          className="h-7 text-xs"
+          aria-label="Perfil da demonstração"
+        >
+          {(Object.keys(PERFIL_INFO) as PerfilDemo[]).map((p) => (
+            <option key={p} value={p}>{PERFIL_INFO[p].nome}</option>
+          ))}
+        </Select>
+      </div>
+      <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
+        {navVisivel.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === '/'}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-2 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors lg:py-1.5',
+                isActive
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+              )
+            }
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="border-t px-3 py-2 text-[10px] text-muted-foreground">
+        Demonstração — dados fictícios gerados localmente. Nada sai do navegador.
+      </div>
+
+      <ConfirmDialog
+        open={perfilPendente !== null}
+        onClose={() => setPerfilPendente(null)}
+        onConfirm={() => {
+          if (!perfilPendente) return
+          setPerfil(perfilPendente)
+          navigate('/')
+          onNavigate?.()
+          toast(`Perfil "${PERFIL_INFO[perfilPendente].nome}" carregado.`)
+        }}
+        title="Trocar perfil da demonstração"
+        confirmLabel="Trocar perfil"
+      >
+        Carregar o perfil <strong>{perfilPendente ? PERFIL_INFO[perfilPendente].nome : ''}</strong>?
+        As alterações feitas no perfil atual serão descartadas e um novo conjunto de dados será gerado.
+      </ConfirmDialog>
+    </>
+  )
+}
+
+export function AppLayout() {
+  const animais = useStore((s) => s.animais)
+  const resetDemo = useStore((s) => s.resetDemo)
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [busca, setBusca] = useState('')
+  const [resetOpen, setResetOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  // fecha o drawer ao trocar de rota (links, busca, alertas…)
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [location.pathname])
 
   const buscarBrinco = () => {
     const q = busca.trim().toLowerCase()
@@ -69,94 +153,72 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="fixed inset-y-0 left-0 z-40 flex w-52 flex-col border-r bg-white">
-        <div className="border-b px-4 py-3">
-          <div className="text-sm font-bold leading-tight">{fazenda.nome}</div>
-          <div className="mt-0.5 text-[11px] text-muted-foreground">
-            {fazenda.areaHa} ha · {info.descricao}
-          </div>
-        </div>
-        <div className="border-b px-3 py-2">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Perfil da demonstração
-          </div>
-          <Select
-            value={perfil}
-            onChange={(e) => {
-              const novo = e.target.value as PerfilDemo
-              if (novo !== perfil) setPerfilPendente(novo)
-            }}
-            className="h-7 text-xs"
-            aria-label="Perfil da demonstração"
-          >
-            {(Object.keys(PERFIL_INFO) as PerfilDemo[]).map((p) => (
-              <option key={p} value={p}>{PERFIL_INFO[p].nome}</option>
-            ))}
-          </Select>
-        </div>
-        <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
-          {navVisivel.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                cn(
-                  'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors',
-                  isActive
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
-                )
-              }
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="border-t p-2 text-[10px] text-muted-foreground px-3 py-2">
-          Demonstração — dados fictícios gerados localmente. Nada sai do navegador.
-        </div>
+      {/* Sidebar fixa — só desktop */}
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-52 flex-col border-r bg-white lg:flex">
+        <SidebarContent />
       </aside>
 
-      <div className="ml-52 flex flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-11 items-center justify-between gap-3 border-b bg-white/95 px-4 backdrop-blur">
-          <div className="flex items-center gap-4">
-            <div className="whitespace-nowrap text-xs text-muted-foreground">
-              Safra 2025/26 · {fmtDate(hojeISO())}
-            </div>
-            <form
-              className="relative"
-              onSubmit={(e) => {
-                e.preventDefault()
-                buscarBrinco()
-              }}
+      {/* Drawer mobile */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setMenuOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 flex w-64 max-w-[85vw] flex-col border-r bg-white shadow-xl">
+            <button
+              onClick={() => setMenuOpen(false)}
+              aria-label="Fechar menu"
+              className="absolute right-2 top-2 rounded p-1.5 text-muted-foreground hover:bg-secondary"
             >
-              <button
-                type="submit"
-                aria-label="Buscar"
-                className="absolute left-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
-              >
-                <Search className="h-3.5 w-3.5" />
-              </button>
-              <input
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                placeholder="Buscar brinco (Enter)…"
-                aria-label="Buscar animal por brinco"
-                className="h-7 w-48 rounded-md border border-input bg-white pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              />
-            </form>
+              <X className="h-4 w-4" />
+            </button>
+            <SidebarContent onNavigate={() => setMenuOpen(false)} />
+          </aside>
+        </div>
+      )}
+
+      <div className="flex min-w-0 flex-1 flex-col lg:ml-52">
+        <header className="sticky top-0 z-30 flex h-11 items-center gap-2 border-b bg-white/95 px-3 backdrop-blur lg:px-4">
+          <button
+            onClick={() => setMenuOpen(true)}
+            aria-label="Abrir menu"
+            className="rounded-md border p-1.5 text-muted-foreground hover:bg-secondary lg:hidden"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+          <div className="hidden whitespace-nowrap text-xs text-muted-foreground sm:block">
+            Safra 2025/26 · {fmtDate(hojeISO())}
           </div>
+          <form
+            className="relative min-w-0 flex-1 sm:max-w-56 sm:flex-none"
+            onSubmit={(e) => {
+              e.preventDefault()
+              buscarBrinco()
+            }}
+          >
+            <button
+              type="submit"
+              aria-label="Buscar"
+              className="absolute left-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar brinco…"
+              aria-label="Buscar animal por brinco"
+              className="h-7 w-full rounded-md border border-input bg-white pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+          </form>
           <button
             onClick={() => setResetOpen(true)}
-            className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+            className="ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+            title="Restaurar dados da demo"
           >
             <RotateCcw className="h-3.5 w-3.5" />
-            Restaurar dados da demo
+            <span className="hidden md:inline">Restaurar dados da demo</span>
           </button>
         </header>
-        <main className="flex-1 p-4">
+        <main className="min-w-0 flex-1 p-3 lg:p-4">
           <Outlet />
         </main>
       </div>
@@ -174,22 +236,6 @@ export function AppLayout() {
       >
         Todas as alterações feitas localmente serão descartadas e o conjunto de dados do perfil atual
         será gerado novamente com datas relativas a hoje.
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={perfilPendente !== null}
-        onClose={() => setPerfilPendente(null)}
-        onConfirm={() => {
-          if (!perfilPendente) return
-          setPerfil(perfilPendente)
-          navigate('/')
-          toast(`Perfil "${PERFIL_INFO[perfilPendente].nome}" carregado.`)
-        }}
-        title="Trocar perfil da demonstração"
-        confirmLabel="Trocar perfil"
-      >
-        Carregar o perfil <strong>{perfilPendente ? PERFIL_INFO[perfilPendente].nome : ''}</strong>?
-        As alterações feitas no perfil atual serão descartadas e um novo conjunto de dados será gerado.
       </ConfirmDialog>
 
       <Toaster />

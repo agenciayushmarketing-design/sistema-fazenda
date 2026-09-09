@@ -201,7 +201,7 @@ function NovaManutencaoDialog({
 
   return (
     <Dialog open={open} onClose={onClose} title="Registrar manutenção">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Máquina">
           <Select value={maquinaId} onChange={(e) => setMaquinaId(e.target.value)}>
             {maquinas.map((m) => (
