@@ -18,6 +18,7 @@ import { useTableSort, usePagination } from '@/hooks/table'
 import { CATEGORIA_LABEL, type Animal, type Categoria, type Movimentacao } from '@/data/types'
 import { inventarioPorCategoria, ativos } from '@/lib/metrics'
 import { fmtBRL, fmtDate, fmtIdade, fmtKg, fmtNum, hojeISO, idadeMeses } from '@/lib/format'
+import { addDays } from '@/data/seed'
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   nascimento: 'Nascimento',
@@ -263,6 +264,8 @@ function VenderAnimaisDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [qtd, setQtd] = useState('')
   const [valor, setValor] = useState('')
   const [comprador, setComprador] = useState('')
+  const [condicao, setCondicao] = useState<'vista' | 'prazo'>('vista')
+  const [vencimento, setVencimento] = useState(addDays(hojeISO(), 30))
   const [erro, setErro] = useState('')
 
   const disponiveis = ativos(animais).filter((a) => a.categoria === categoria).length
@@ -275,13 +278,27 @@ function VenderAnimaisDialog({ open, onClose }: { open: boolean; onClose: () => 
       setErro('Informe quantidade e valor total da venda.')
       return
     }
-    const r = venderAnimais({ categoria, qtd: q, valorTotal: v, comprador: comprador.trim() || undefined })
+    if (condicao === 'prazo' && vencimento <= hojeISO()) {
+      setErro('Para venda a prazo, o vencimento precisa ser uma data futura.')
+      return
+    }
+    const r = venderAnimais({
+      categoria,
+      qtd: q,
+      valorTotal: v,
+      comprador: comprador.trim() || undefined,
+      vencimento: condicao === 'prazo' ? vencimento : undefined,
+    })
     if (!r.ok) {
       setErro(r.erro ?? 'Não foi possível registrar a venda.')
       return
     }
-    toast(`Venda de ${q} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) registrada — receita de ${fmtBRL(v)} no Financeiro.`)
-    setQtd(''); setValor(''); setComprador(''); setErro('')
+    toast(
+      condicao === 'prazo'
+        ? `Venda de ${q} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) registrada — ${fmtBRL(v)} a receber em ${fmtDate(vencimento)}.`
+        : `Venda de ${q} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) registrada — receita de ${fmtBRL(v)} no Financeiro.`,
+    )
+    setQtd(''); setValor(''); setComprador(''); setErro(''); setCondicao('vista')
     onClose()
   }
 
@@ -304,6 +321,17 @@ function VenderAnimaisDialog({ open, onClose }: { open: boolean; onClose: () => 
         <FormRow label="Comprador (opcional)">
           <Input value={comprador} onChange={(e) => setComprador(e.target.value)} placeholder="Frigorífico Boi Forte" />
         </FormRow>
+        <FormRow label="Condição de pagamento">
+          <Select value={condicao} onChange={(e) => setCondicao(e.target.value as 'vista' | 'prazo')}>
+            <option value="vista">À vista (recebido hoje)</option>
+            <option value="prazo">A prazo (a receber)</option>
+          </Select>
+        </FormRow>
+        {condicao === 'prazo' && (
+          <FormRow label="Vencimento">
+            <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+          </FormRow>
+        )}
       </div>
       {porCabeca > 0 && (
         <p className="tnum mt-2 text-xs text-muted-foreground">≈ {fmtBRL(porCabeca)} por cabeça</p>
@@ -314,8 +342,10 @@ function VenderAnimaisDialog({ open, onClose }: { open: boolean; onClose: () => 
         </p>
       )}
       <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
-        Os animais saem do inventário, a venda entra no livro de movimentação e a receita é lançada
-        no Financeiro (recebida hoje).
+        Os animais saem do inventário e a venda entra no livro de movimentação.{' '}
+        {condicao === 'prazo'
+          ? 'A receita fica em "a receber" no Financeiro até você marcar o recebimento.'
+          : 'A receita é lançada no Financeiro como recebida hoje.'}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
@@ -333,6 +363,9 @@ function ComprarAnimaisDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [valor, setValor] = useState('')
   const [vendedor, setVendedor] = useState('')
   const [loteId, setLoteId] = useState(lotes[0]?.id ?? '')
+  const [condicao, setCondicao] = useState<'vista' | 'prazo'>('vista')
+  const [vencimento, setVencimento] = useState(addDays(hojeISO(), 30))
+  const [erro, setErro] = useState('')
 
   const q = Number(qtd)
   const v = Number(valor)
@@ -340,7 +373,14 @@ function ComprarAnimaisDialog({ open, onClose }: { open: boolean; onClose: () =>
 
   const salvar = () => {
     const p = Number(pesoMedio)
-    if (!q || q <= 0 || !p || p <= 0 || !v || v <= 0) return
+    if (!q || q <= 0 || !p || p <= 0 || !v || v <= 0) {
+      setErro('Informe quantidade, peso médio e valor total da compra.')
+      return
+    }
+    if (condicao === 'prazo' && vencimento <= hojeISO()) {
+      setErro('Para compra a prazo, o vencimento precisa ser uma data futura.')
+      return
+    }
     comprarAnimais({
       categoria,
       qtd: q,
@@ -348,9 +388,14 @@ function ComprarAnimaisDialog({ open, onClose }: { open: boolean; onClose: () =>
       valorTotal: v,
       vendedor: vendedor.trim() || undefined,
       loteId,
+      vencimento: condicao === 'prazo' ? vencimento : undefined,
     })
-    toast(`Compra de ${q} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) registrada — despesa de ${fmtBRL(v)} no Financeiro.`)
-    setQtd(''); setPesoMedio(''); setValor(''); setVendedor('')
+    toast(
+      condicao === 'prazo'
+        ? `Compra de ${q} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) registrada — ${fmtBRL(v)} a pagar em ${fmtDate(vencimento)}.`
+        : `Compra de ${q} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) registrada — despesa de ${fmtBRL(v)} no Financeiro.`,
+    )
+    setQtd(''); setPesoMedio(''); setValor(''); setVendedor(''); setErro(''); setCondicao('vista')
     onClose()
   }
 
@@ -383,13 +428,31 @@ function ComprarAnimaisDialog({ open, onClose }: { open: boolean; onClose: () =>
         <FormRow label="Vendedor (opcional)">
           <Input value={vendedor} onChange={(e) => setVendedor(e.target.value)} placeholder="Leilão regional" />
         </FormRow>
+        <FormRow label="Condição de pagamento">
+          <Select value={condicao} onChange={(e) => setCondicao(e.target.value as 'vista' | 'prazo')}>
+            <option value="vista">À vista (pago hoje)</option>
+            <option value="prazo">A prazo (a pagar)</option>
+          </Select>
+        </FormRow>
+        {condicao === 'prazo' && (
+          <FormRow label="Vencimento">
+            <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+          </FormRow>
+        )}
       </div>
       {porCabeca > 0 && (
         <p className="tnum mt-2 text-xs text-muted-foreground">≈ {fmtBRL(porCabeca)} por cabeça</p>
       )}
+      {erro && (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">
+          {erro}
+        </p>
+      )}
       <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
-        Os animais entram no inventário com brinco CP-xxx, a compra fica no livro de movimentação e a
-        despesa é lançada no Financeiro (paga hoje).
+        Os animais entram no inventário com brinco CP-xxx e a compra fica no livro de movimentação.{' '}
+        {condicao === 'prazo'
+          ? 'A despesa fica em "a pagar" no Financeiro até você marcar o pagamento.'
+          : 'A despesa é lançada no Financeiro como paga hoje.'}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>

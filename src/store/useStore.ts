@@ -36,14 +36,17 @@ interface Actions {
   removeAnimal: (id: string, motivo: 'morte' | 'venda') => void
   addPesagemAnimal: (id: string, pes: Pesagem) => void
   addMovimentacao: (m: Omit<Movimentacao, 'id'>) => void
-  /** Venda em lote: baixa os animais, registra no livro e lança a receita no Financeiro */
+  /** Venda em lote: baixa os animais, registra no livro e lança a receita no Financeiro.
+   *  Com `vencimento`, a receita fica em aberto (a receber); sem, é recebida hoje. */
   venderAnimais: (p: {
     categoria: Categoria
     qtd: number
     valorTotal: number
     comprador?: string
+    vencimento?: string
   }) => { ok: boolean; erro?: string }
-  /** Compra em lote: cria os animais, registra no livro e lança a despesa no Financeiro */
+  /** Compra em lote: cria os animais, registra no livro e lança a despesa no Financeiro.
+   *  Com `vencimento`, a despesa fica em aberto (a pagar); sem, é paga hoje. */
   comprarAnimais: (p: {
     categoria: Categoria
     qtd: number
@@ -51,6 +54,7 @@ interface Actions {
     valorTotal: number
     vendedor?: string
     loteId: string
+    vencimento?: string
   }) => void
 
   // Cria — mutações mantêm as identidades do seed (parto cria o animal, etc.)
@@ -169,7 +173,7 @@ export const useStore = create<Store>()(
       addMovimentacao: (m) =>
         set((s) => ({ movimentacoes: [...s.movimentacoes, { id: nid('MV'), ...m }] })),
 
-      venderAnimais: ({ categoria, qtd, valorTotal, comprador }) => {
+      venderAnimais: ({ categoria, qtd, valorTotal, comprador, vencimento }) => {
         const s = get()
         const candidatos = s.animais.filter((a) => a.status === 'ativo' && a.categoria === categoria)
         if (qtd <= 0) return { ok: false, erro: 'Informe a quantidade.' }
@@ -207,8 +211,8 @@ export const useStore = create<Store>()(
                     categoria: 'Venda de animais',
                     descricao: `Venda de ${qtd} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s)${comprador ? ` — ${comprador}` : ''}`,
                     valor: valorTotal,
-                    vencimento: hoje,
-                    pagamento: hoje,
+                    vencimento: vencimento ?? hoje,
+                    pagamento: vencimento ? undefined : hoje,
                     origem: 'venda_animal' as const,
                   },
                 ]
@@ -218,7 +222,7 @@ export const useStore = create<Store>()(
         return { ok: true }
       },
 
-      comprarAnimais: ({ categoria, qtd, pesoMedio, valorTotal, vendedor, loteId }) =>
+      comprarAnimais: ({ categoria, qtd, pesoMedio, valorTotal, vendedor, loteId, vencimento }) =>
         set((s) => {
           const hoje = hojeISO()
           // idade típica estimada por categoria (meses) para preencher o nascimento
@@ -273,8 +277,8 @@ export const useStore = create<Store>()(
                       categoria: 'Compra de animais',
                       descricao: `Compra de ${qtd} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s)${vendedor ? ` — ${vendedor}` : ''}`,
                       valor: valorTotal,
-                      vencimento: hoje,
-                      pagamento: hoje,
+                      vencimento: vencimento ?? hoje,
+                      pagamento: vencimento ? undefined : hoje,
                       origem: 'compra_animal' as const,
                     },
                   ]

@@ -13,7 +13,8 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
 import { CATEGORIA_LABEL, type Animal, type Categoria } from '@/data/types'
-import { fmtDate, fmtDateShort, fmtIdade, fmtKg1, fmtNum1, hojeISO } from '@/lib/format'
+import { addDays } from '@/data/seed'
+import { fmtBRL, fmtDate, fmtDateShort, fmtIdade, fmtKg1, fmtNum1, hojeISO } from '@/lib/format'
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
 
 export default function FichaAnimal() {
@@ -301,6 +302,8 @@ function SaidaAnimalDialog({
   const addLancamento = useStore((s) => s.addLancamento)
   const [motivo, setMotivo] = useState<'venda' | 'morte'>('venda')
   const [valor, setValor] = useState('')
+  const [condicao, setCondicao] = useState<'vista' | 'prazo'>('vista')
+  const [vencimento, setVencimento] = useState(addDays(hojeISO(), 30))
 
   return (
     <Dialog open={open} onClose={onClose} title={`Registrar saída — ${animal.brinco}`} className="max-w-md">
@@ -312,15 +315,31 @@ function SaidaAnimalDialog({
           </Select>
         </FormRow>
         {motivo === 'venda' && (
-          <FormRow label="Valor da venda (R$, opcional)">
-            <Input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="2800" />
-          </FormRow>
+          <>
+            <FormRow label="Valor da venda (R$, opcional)">
+              <Input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="2800" />
+            </FormRow>
+            <FormRow label="Condição de pagamento">
+              <Select value={condicao} onChange={(e) => setCondicao(e.target.value as 'vista' | 'prazo')}>
+                <option value="vista">À vista (recebido hoje)</option>
+                <option value="prazo">A prazo (a receber)</option>
+              </Select>
+            </FormRow>
+            {condicao === 'prazo' && (
+              <FormRow label="Vencimento">
+                <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+              </FormRow>
+            )}
+          </>
         )}
       </div>
       <p className="mt-3 text-[13px] text-muted-foreground">
         O animal sai do inventário ativo e a {motivo === 'venda' ? 'venda' : 'morte'} é registrada no
         livro de movimentação com a data de hoje.
-        {motivo === 'venda' && ' Se o valor for informado, a receita entra no Financeiro.'}
+        {motivo === 'venda' &&
+          (condicao === 'prazo'
+            ? ' Com valor informado, a receita fica em "a receber" no Financeiro até o vencimento.'
+            : ' Se o valor for informado, a receita entra no Financeiro como recebida hoje.')}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
@@ -329,21 +348,24 @@ function SaidaAnimalDialog({
           onClick={() => {
             removeAnimal(animal.id, motivo)
             const v = Number(valor)
+            const aPrazo = condicao === 'prazo'
             if (motivo === 'venda' && v > 0) {
               addLancamento({
                 tipo: 'receita',
                 categoria: 'Venda de animais',
                 descricao: `Venda do animal ${animal.brinco}`,
                 valor: v,
-                vencimento: hojeISO(),
-                pagamento: hojeISO(),
+                vencimento: aPrazo ? vencimento : hojeISO(),
+                pagamento: aPrazo ? undefined : hojeISO(),
                 origem: 'venda_animal',
                 refId: animal.id,
               })
             }
             toast(
               motivo === 'venda' && v > 0
-                ? `Venda de ${animal.brinco} registrada — receita lançada no Financeiro.`
+                ? aPrazo
+                  ? `Venda de ${animal.brinco} registrada — ${fmtBRL(v)} a receber em ${fmtDate(vencimento)}.`
+                  : `Venda de ${animal.brinco} registrada — receita lançada no Financeiro.`
                 : `Saída de ${animal.brinco} registrada (${motivo === 'venda' ? 'venda' : 'morte'}).`,
             )
             onClose()
