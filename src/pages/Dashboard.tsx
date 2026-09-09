@@ -10,11 +10,12 @@ import { PageHeader, StatCard, ChartCard } from '@/components/shared'
 import { CATEGORIA_LABEL, type Categoria } from '@/data/types'
 import {
   alertas, arrobasProduzidas, custoPorArroba, evolucaoRebanho, gmdMedioRecria,
-  inventarioPorCategoria, metricasCria, metricasReproducao, uaTotal, ativos,
+  inventarioPorCategoria, metricasCria, metricasLeite, metricasReproducao, previsaoApartacao,
+  uaTotal, ativos, apartacoesPorMes,
 } from '@/lib/metrics'
 import { fmtBRL, fmtGMD, fmtMesAno, fmtNum, fmtNum1, fmtNum2, fmtPct, fmtDateShort } from '@/lib/format'
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
-import { diffDays } from '@/data/seed'
+import { diffDays, PERFIL_INFO } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
 
 /** Tooltip da evolução com total do mês ao final */
@@ -53,6 +54,9 @@ export default function Dashboard() {
   const arrobas = arrobasProduzidas(state)
   const listaAlertas = alertas(state)
   const evolucao = evolucaoRebanho(state)
+  const leite = metricasLeite(state)
+  const temRecria = state.lotesRecria.length > 0
+  const apartar90 = previsaoApartacao(state).filter((p) => p.diasRestantes <= 90).length
 
   const distribuicao = (Object.entries(inv) as [Categoria, number][])
     .map(([cat, qtd]) => ({ categoria: CATEGORIA_LABEL[cat], qtd }))
@@ -80,7 +84,7 @@ export default function Dashboard() {
     <div>
       <PageHeader
         title="Dashboard"
-        subtitle={`${state.fazenda.nome} — visão geral do ciclo completo`}
+        subtitle={`${state.fazenda.nome} — ${PERFIL_INFO[state.perfil].descricao}`}
       />
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
@@ -89,8 +93,20 @@ export default function Dashboard() {
         <StatCard label="Lotação" value={`${fmtNum2(ua / state.fazenda.areaHa)} UA/ha`} detail={`${fmtNum(state.fazenda.areaHa)} ha úteis`} />
         <StatCard label="Taxa de prenhez" value={fmtPct(repro.prenhezFinalPct)} detail={`${repro.prenhasTotal}/${repro.expostas} expostas · ${repro.pendentes} DG pendentes`} />
         <StatCard label="Taxa de desmame" value={fmtPct(cria.taxaDesmamePct)} detail="projetada, safra atual" />
-        <StatCard label="GMD médio recria" value={fmtGMD(gmd)} detail="ponderado por lote" />
-        <StatCard label="Custo / @ produzida" value={fmtBRL(custoArroba)} detail={`${fmtNum1(arrobas)} @ no período`} />
+        {temRecria ? (
+          <>
+            <StatCard label="GMD médio recria" value={fmtGMD(gmd)} detail="ponderado por lote" />
+            <StatCard label="Custo / @ produzida" value={fmtBRL(custoArroba)} detail={`${fmtNum1(arrobas)} @ no período`} />
+          </>
+        ) : (
+          <>
+            <StatCard label="Natalidade" value={fmtPct(cria.natalidadePct)} detail={`${cria.partos} partos na safra`} />
+            <StatCard label="Apartações em 90 dias" value={fmtNum(apartar90)} detail="bezerros no ponto de 8 meses" tone={apartar90 > 0 ? 'warning' : undefined} />
+          </>
+        )}
+        {leite && (
+          <StatCard label="Leite — média 7 dias" value={`${fmtNum(Math.round(leite.media7dias))} L/dia`} detail={`${leite.vacasLactacao} vacas em lactação`} />
+        )}
       </div>
 
       <div className="mt-3 grid gap-3 xl:grid-cols-3">
@@ -129,27 +145,41 @@ export default function Dashboard() {
       </div>
 
       <div className="mt-3 grid gap-3 xl:grid-cols-3">
-        <ChartCard title="Curva de peso — lotes de recria (kg médio × dias no lote)" className="xl:col-span-2">
-          <ResponsiveContainer width="100%" height={230}>
-            <LineChart data={curvaData} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>
-              <CartesianGrid stroke={GRID} vertical={false} />
-              <XAxis dataKey="dias" {...axisProps} label={{ value: 'dias', position: 'insideBottomRight', offset: -2, fontSize: 11, fill: '#898781' }} />
-              <YAxis domain={['dataMin - 10', 'dataMax + 10']} {...axisProps} />
-              <Tooltip {...tooltipStyle} labelFormatter={(v) => `Dia ${v}`} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              {curvas.map((c, i) => (
-                <Line
-                  key={c.nome}
-                  dataKey={c.nome}
-                  stroke={SERIES[i]}
-                  strokeWidth={2}
-                  dot={{ r: 2.5, fill: SERIES[i] }}
-                  connectNulls
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
+        {temRecria ? (
+          <ChartCard title="Curva de peso — lotes de recria (kg médio × dias no lote)" className="xl:col-span-2">
+            <ResponsiveContainer width="100%" height={230}>
+              <LineChart data={curvaData} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="dias" {...axisProps} label={{ value: 'dias', position: 'insideBottomRight', offset: -2, fontSize: 11, fill: '#898781' }} />
+                <YAxis domain={['dataMin - 10', 'dataMax + 10']} {...axisProps} />
+                <Tooltip {...tooltipStyle} labelFormatter={(v) => `Dia ${v}`} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {curvas.map((c, i) => (
+                  <Line
+                    key={c.nome}
+                    dataKey={c.nome}
+                    stroke={SERIES[i]}
+                    strokeWidth={2}
+                    dot={{ r: 2.5, fill: SERIES[i] }}
+                    connectNulls
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </ChartCard>
+        ) : (
+          <ChartCard title="Previsão de apartação — bezerros por mês (8 meses de idade)" className="xl:col-span-2">
+            <ResponsiveContainer width="100%" height={230}>
+              <BarChart data={apartacoesPorMes(state)} margin={{ top: 16, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="mes" tickFormatter={fmtMesAno} {...axisProps} />
+                <YAxis allowDecimals={false} {...axisProps} />
+                <Tooltip {...tooltipStyle} labelFormatter={(v) => fmtMesAno(String(v))} formatter={(v) => [String(v), 'Bezerros']} />
+                <Bar dataKey="qtd" name="Bezerros" fill={SERIES[0]} radius={[3, 3, 0, 0]} label={{ position: 'top', fontSize: 11, fill: '#52514e' }} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+        )}
 
         <ChartCard title={`Alertas operacionais (${listaAlertas.length})`}>
           <div className="max-h-[230px] space-y-1.5 overflow-y-auto pr-1">

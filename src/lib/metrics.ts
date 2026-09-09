@@ -1,10 +1,9 @@
 // Métricas derivadas do estado — funções puras usadas pelas páginas
-import type { Animal, Categoria, ItemEstoque, Pasto, SeedData } from '@/data/types'
-import { PARAMS, addDays, diffDays } from '@/data/seed'
+import type { Animal, Categoria, Lancamento, Pasto, SeedData } from '@/data/types'
+import { addDays, diffDays, APARTACAO_DIAS, KG_POR_ARROBA, UA_KG } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
 
-export const UA_KG = PARAMS.uaKg
-export const KG_POR_ARROBA = PARAMS.kgPorArroba
+export { UA_KG, KG_POR_ARROBA, APARTACAO_DIAS }
 
 export function ativos(animais: Animal[]) {
   return animais.filter((a) => a.status === 'ativo')
@@ -47,6 +46,11 @@ export function gmdMedioRecria(data: Pick<SeedData, 'lotesRecria'>): number {
   return cabDias > 0 ? kg / cabDias : 0
 }
 
+/** Quantidade real de um lote de recria = animais ativos alocados nele */
+export function qtdLoteRecria(animais: Animal[], loteId: string): number {
+  return ativos(animais).filter((a) => a.loteId === loteId).length
+}
+
 /** Ganho total de kg dos lotes ativos (recria + terminação) desde a entrada */
 export function ganhoKgTotal(data: Pick<SeedData, 'lotesRecria' | 'animais'>): number {
   const hoje = hojeISO()
@@ -54,7 +58,6 @@ export function ganhoKgTotal(data: Pick<SeedData, 'lotesRecria' | 'animais'>): n
   for (const l of data.lotesRecria) {
     kg += l.qtd * l.gmd * Math.max(diffDays(l.dataEntrada, hoje), 0)
   }
-  // confinamento: peso atual − primeira pesagem
   for (const a of ativos(data.animais)) {
     if (a.categoria !== 'boi_terminacao' || a.pesagens.length === 0) continue
     kg += a.pesoAtual - a.pesagens[0].peso
@@ -89,11 +92,6 @@ export function custoPorCentro(data: Pick<SeedData, 'pedidos'>): Record<string, 
   return out
 }
 
-/** Quantidade real de um lote de recria = animais ativos alocados nele */
-export function qtdLoteRecria(animais: Animal[], loteId: string): number {
-  return ativos(animais).filter((a) => a.loteId === loteId).length
-}
-
 // ---- Reprodução ----
 export function metricasReproducao(
   data: Pick<SeedData, 'diagnosticos' | 'estacoes' | 'protocolosIATF' | 'pedidos' | 'animais'>,
@@ -106,7 +104,6 @@ export function metricasReproducao(
   const expostas = estacao?.matrizesExpostas ?? 0
   const dosesIATF = data.protocolosIATF.reduce((s, p) => s + p.doses, 0)
 
-  // custo por prenhez: sêmen + hormônios recebidos ÷ prenhezes confirmadas
   const custoRepro = data.pedidos
     .filter((p) => p.status === 'recebido')
     .flatMap((p) => p.itens)
@@ -155,7 +152,26 @@ export function prenhezPorTerco(data: Pick<SeedData, 'diagnosticos' | 'estacoes'
 }
 
 // ---- Cria ----
-export function metricasCria(data: Pick<SeedData, 'partos' | 'desmames' | 'movimentacoes' | 'estacoes' | 'animais'>) {
+
+/** IP por matriz: parto da safra atual × parto da safra anterior */
+export function intervaloPartosPorMatriz(data: Pick<SeedData, 'partos' | 'partosAnteriores'>) {
+  const out: { matrizBrinco: string; partoAnterior: string; partoAtual: string; ipDias: number }[] = []
+  for (const ant of data.partosAnteriores) {
+    const atual = data.partos.find((p) => p.matrizBrinco === ant.matrizBrinco)
+    if (!atual) continue
+    out.push({
+      matrizBrinco: ant.matrizBrinco,
+      partoAnterior: ant.data,
+      partoAtual: atual.data,
+      ipDias: diffDays(ant.data, atual.data),
+    })
+  }
+  return out.sort((a, b) => b.ipDias - a.ipDias)
+}
+
+export function metricasCria(
+  data: Pick<SeedData, 'partos' | 'partosAnteriores' | 'desmames' | 'movimentacoes' | 'estacoes' | 'animais'>,
+) {
   const partos = data.partos
   const mortes = data.movimentacoes.filter(
     (m) => m.tipo === 'morte' && (m.categoria === 'bezerro' || m.categoria === 'bezerra'),
@@ -163,7 +179,6 @@ export function metricasCria(data: Pick<SeedData, 'partos' | 'desmames' | 'movim
   const estacaoPassada = data.estacoes.find((e) => e.status === 'encerrada')
   const expostas = estacaoPassada?.matrizesExpostas ?? 0
 
-  // peso 205 dias ajustado: peso desmame ajustado linearmente
   const pesosAj = data.desmames.map((d) => {
     const parto = partos.find((p) => p.bezerroBrinco === d.bezerroBrinco)
     const nascer = parto?.pesoNascer ?? 32
@@ -171,6 +186,11 @@ export function metricasCria(data: Pick<SeedData, 'partos' | 'desmames' | 'movim
   })
   const pesoDesmame205 = pesosAj.length > 0 ? pesosAj.reduce((a, b) => a + b, 0) / pesosAj.length : 0
   const kgDesmamado = data.desmames.reduce((s, d) => s + d.peso, 0)
+
+  // IP médio real, calculado matriz a matriz (safra anterior × atual)
+  const ips = intervaloPartosPorMatriz(data)
+  const intervaloPartosDias =
+    ips.length > 0 ? Math.round(ips.reduce((s, x) => s + x.ipDias, 0) / ips.length) : 0
 
   return {
     partos: partos.length,
@@ -181,13 +201,135 @@ export function metricasCria(data: Pick<SeedData, 'partos' | 'desmames' | 'movim
     taxaDesmamePct: expostas > 0 ? ((partos.length - mortes.length) / expostas) * 100 : 0,
     pesoDesmame205,
     kgBezerroPorMatriz: expostas > 0 ? kgDesmamado / expostas : 0,
-    intervaloPartosDias: PARAMS.cria.intervaloPartosDias,
+    intervaloPartosDias,
+    matrizesComIP: ips.length,
+  }
+}
+
+/** Previsão de apartação: bezerros ao pé com data prevista aos 8 meses */
+export function previsaoApartacao(data: Pick<SeedData, 'animais' | 'desmames'>) {
+  const hoje = hojeISO()
+  const desmamados = new Set(data.desmames.map((d) => d.bezerroBrinco))
+  return ativos(data.animais)
+    .filter((a) => (a.categoria === 'bezerro' || a.categoria === 'bezerra') && !desmamados.has(a.brinco))
+    .map((a) => {
+      const dataPrevista = addDays(a.nascimento, APARTACAO_DIAS)
+      const diasRestantes = diffDays(hoje, dataPrevista)
+      const pesoProjetado = Math.round(a.pesoAtual + Math.max(0, diasRestantes) * 0.72)
+      return { animal: a, dataPrevista, diasRestantes, pesoProjetado }
+    })
+    .sort((a, b) => a.dataPrevista.localeCompare(b.dataPrevista))
+}
+
+/** Apartações previstas agrupadas por mês (para gráfico e planejamento) */
+export function apartacoesPorMes(data: Pick<SeedData, 'animais' | 'desmames'>) {
+  const porMes = new Map<string, number>()
+  for (const p of previsaoApartacao(data)) {
+    const mes = p.dataPrevista.slice(0, 7)
+    porMes.set(mes, (porMes.get(mes) ?? 0) + 1)
+  }
+  return [...porMes.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([mes, qtd]) => ({ mes: `${mes}-01`, qtd }))
+}
+
+// ---- Financeiro ----
+export function statusLancamento(l: Lancamento, hoje = hojeISO()): 'pago' | 'vencido' | 'aberto' {
+  if (l.pagamento) return 'pago'
+  return l.vencimento < hoje ? 'vencido' : 'aberto'
+}
+
+export function metricasFinanceiro(data: Pick<SeedData, 'lancamentos'>) {
+  const hoje = hojeISO()
+  const inicio30 = addDays(hoje, -30)
+
+  let receitasMes = 0
+  let despesasMes = 0
+  let aPagar = 0
+  let aReceber = 0
+  let vencidas = 0
+  for (const l of data.lancamentos) {
+    const st = statusLancamento(l, hoje)
+    if (st === 'pago' && l.pagamento! > inicio30) {
+      if (l.tipo === 'receita') receitasMes += l.valor
+      else despesasMes += l.valor
+    }
+    if (st !== 'pago') {
+      if (l.tipo === 'despesa') {
+        aPagar += l.valor
+        if (st === 'vencido') vencidas++
+      } else {
+        aReceber += l.valor
+      }
+    }
+  }
+
+  // fluxo de caixa dos últimos 12 meses (regime de caixa: data de pagamento)
+  const fluxo: { mes: string; receitas: number; despesas: number }[] = []
+  for (let m = 11; m >= 0; m--) {
+    const ref = addDays(hoje, -m * 30).slice(0, 7)
+    if (fluxo.some((f) => f.mes === `${ref}-01`)) continue
+    fluxo.push({ mes: `${ref}-01`, receitas: 0, despesas: 0 })
+  }
+  for (const l of data.lancamentos) {
+    if (!l.pagamento) continue
+    const mes = `${l.pagamento.slice(0, 7)}-01`
+    const f = fluxo.find((x) => x.mes === mes)
+    if (!f) continue
+    if (l.tipo === 'receita') f.receitas += l.valor
+    else f.despesas += l.valor
+  }
+  const fluxo12m = fluxo.map((f) => ({ ...f, resultado: f.receitas - f.despesas }))
+
+  return { receitasMes, despesasMes, resultadoMes: receitasMes - despesasMes, aPagar, aReceber, vencidas, fluxo12m }
+}
+
+// ---- Máquinas ----
+export function custoManutencao12m(data: Pick<SeedData, 'maquinas'>): number {
+  const limite = addDays(hojeISO(), -365)
+  return data.maquinas.reduce(
+    (s, m) => s + m.manutencoes.filter((mt) => mt.data >= limite).reduce((si, mt) => si + mt.custo, 0),
+    0,
+  )
+}
+
+export function maquinasComRevisaoProxima(data: Pick<SeedData, 'maquinas'>) {
+  const hoje = hojeISO()
+  const limiteData = addDays(hoje, 30)
+  return data.maquinas.filter((m) => {
+    if (m.proximaRevisaoHorimetro !== undefined && m.horimetro !== undefined) {
+      return m.horimetro >= m.proximaRevisaoHorimetro - 100
+    }
+    if (m.proximaRevisaoData) return m.proximaRevisaoData <= limiteData
+    return false
+  })
+}
+
+// ---- Leite ----
+export function metricasLeite(data: Pick<SeedData, 'producaoLeite' | 'leite'>) {
+  if (!data.leite || data.producaoLeite.length === 0) return null
+  const hoje = hojeISO()
+  const mesAtual = hoje.slice(0, 7)
+  const ultimos7 = data.producaoLeite.slice(-7)
+  const media7 = ultimos7.reduce((s, p) => s + p.litros, 0) / Math.max(ultimos7.length, 1)
+  const ontem = data.producaoLeite[data.producaoLeite.length - 1]
+  const litrosMes = data.producaoLeite
+    .filter((p) => p.data.slice(0, 7) === mesAtual)
+    .reduce((s, p) => s + p.litros, 0)
+  return {
+    vacasLactacao: data.leite.vacasLactacao,
+    precoLitro: data.leite.precoLitro,
+    producaoOntem: ontem.litros,
+    media7dias: media7,
+    mediaVacaDia: media7 / data.leite.vacasLactacao,
+    litrosMes,
+    receitaMes: litrosMes * data.leite.precoLitro,
   }
 }
 
 // ---- Alertas ----
 export interface Alerta {
-  tipo: 'vacina' | 'lotacao' | 'estoque' | 'dg'
+  tipo: 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina'
   severidade: 'warning' | 'critical'
   titulo: string
   detalhe: string
@@ -243,6 +385,29 @@ export function alertas(data: SeedData): Alerta[] {
       link: '/reproducao',
     })
   }
+  for (const os of data.ordensServico) {
+    if (os.status !== 'concluida' && os.prazo && os.prazo < hoje) {
+      out.push({
+        tipo: 'os',
+        severidade: 'critical',
+        titulo: `OS ${os.numero} com prazo vencido`,
+        detalhe: `${os.titulo} — prazo ${os.prazo.split('-').reverse().join('/')}`,
+        link: '/os',
+      })
+    }
+  }
+  for (const m of maquinasComRevisaoProxima(data)) {
+    out.push({
+      tipo: 'maquina',
+      severidade: 'warning',
+      titulo: `${m.nome}: revisão próxima`,
+      detalhe:
+        m.proximaRevisaoHorimetro !== undefined && m.horimetro !== undefined
+          ? `Horímetro ${m.horimetro.toLocaleString('pt-BR')} h — revisão aos ${m.proximaRevisaoHorimetro.toLocaleString('pt-BR')} h`
+          : `Revisão programada para ${m.proximaRevisaoData?.split('-').reverse().join('/')}`,
+      link: '/maquinas',
+    })
+  }
   return out.sort((a, b) => (a.severidade === 'critical' ? -1 : 1) - (b.severidade === 'critical' ? -1 : 1))
 }
 
@@ -252,7 +417,6 @@ function categoriaNaData(a: Animal, dataRef: string): Categoria | null {
   const meses = diffDays(a.nascimento, dataRef) / 30.44
   switch (a.categoria) {
     case 'boi_terminacao':
-      // comprados: só contam depois da primeira pesagem (entrada)
       return a.pesagens.length > 0 && a.pesagens[0].data <= dataRef ? 'boi_terminacao' : null
     case 'vaca':
     case 'touro':

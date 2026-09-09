@@ -346,7 +346,7 @@ function NovoDGDialog({ open, onClose }: { open: boolean; onClose: () => void })
       origemPrenhez: resultado === 'prenha' ? origem : undefined,
       dataConcepcao: resultado === 'prenha' ? concepcao : undefined,
       dppEstimado: resultado === 'prenha' ? addDays(concepcao, 283) : undefined,
-      estacaoId: estacoes.find((e) => e.status === 'em_andamento')?.id ?? 'EM-2526',
+      estacaoId: estacoes.find((e) => e.status === 'em_andamento')?.id ?? 'EM-ATUAL',
     })
     toast(`Diagnóstico de ${matriz} registrado: ${resultado === 'prenha' ? 'prenha' : 'vazia'}.`)
     setMatriz('')

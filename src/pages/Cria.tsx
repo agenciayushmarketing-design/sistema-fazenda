@@ -13,8 +13,12 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from '@/components/ui/toast'
-import { metricasCria } from '@/lib/metrics'
-import { fmtDate, fmtKg1, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+} from 'recharts'
+import { apartacoesPorMes, intervaloPartosPorMatriz, metricasCria, previsaoApartacao } from '@/lib/metrics'
+import { fmtDate, fmtIdade, fmtKg, fmtKg1, fmtMesAno, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
+import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
 import type { Parto } from '@/data/types'
 
 export default function Cria() {
@@ -29,6 +33,12 @@ export default function Cria() {
   const desmamesOrdenados = [...state.desmames].sort((a, b) => b.data.localeCompare(a.data))
   const partosPag = usePagination(partosOrdenados, 50)
   const desmamesPag = usePagination(desmamesOrdenados, 50)
+
+  const apartacoes = previsaoApartacao(state)
+  const apartMeses = apartacoesPorMes(state)
+  const apartPag = usePagination(apartacoes, 50)
+  const ips = intervaloPartosPorMatriz(state)
+  const ipsPag = usePagination(ips, 50)
 
   return (
     <div>
@@ -51,7 +61,12 @@ export default function Cria() {
         <StatCard label="Taxa de natalidade" value={fmtPct(m.natalidadePct)} detail={`${m.partos} partos / ${state.estacoes[0]?.matrizesExpostas} expostas`} />
         <StatCard label="Mortalidade pré-desmame" value={fmtPct(m.mortalidadePct)} detail={`${m.mortes} mortes`} tone={m.mortalidadePct > 6 ? 'critical' : undefined} />
         <StatCard label="Peso desmame aj. 205d" value={fmtKg1(m.pesoDesmame205)} detail={`${m.desmamados} desmamados`} />
-        <StatCard label="Intervalo entre partos" value={`${m.intervaloPartosDias} dias`} detail="média das matrizes" />
+        <StatCard
+          label="Intervalo entre partos"
+          value={m.intervaloPartosDias > 0 ? `${m.intervaloPartosDias} dias` : '—'}
+          detail={`calculado de ${m.matrizesComIP} matrizes`}
+          tone={m.intervaloPartosDias > 420 ? 'warning' : undefined}
+        />
         <StatCard label="Kg bezerro / matriz" value={fmtKg1(m.kgBezerroPorMatriz)} detail="desmamado por exposta" />
         <StatCard label="Taxa de desmame" value={fmtPct(m.taxaDesmamePct)} detail="projetada (vivos/expostas)" />
       </div>
@@ -78,6 +93,8 @@ export default function Cria() {
         <TabsList>
           <TabsTrigger value="partos">Partos ({fmtNum(state.partos.length)})</TabsTrigger>
           <TabsTrigger value="desmames">Desmames ({fmtNum(state.desmames.length)})</TabsTrigger>
+          <TabsTrigger value="apartacao">Previsão de apartação ({fmtNum(apartacoes.length)})</TabsTrigger>
+          <TabsTrigger value="ip">IP por matriz ({fmtNum(ips.length)})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="partos">
@@ -160,6 +177,102 @@ export default function Cria() {
             <TablePagination {...desmamesPag} />
           </div>
         </TabsContent>
+
+        <TabsContent value="apartacao">
+          <div className="mb-3 rounded-lg border bg-card px-4 pt-3 pb-1">
+            <div className="text-[13px] font-semibold">Bezerros a apartar por mês (previsão aos 8 meses)</div>
+            <ResponsiveContainer width="100%" height={170}>
+              <BarChart data={apartMeses} margin={{ top: 16, right: 12, left: -16, bottom: 0 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="mes" tickFormatter={fmtMesAno} {...axisProps} />
+                <YAxis allowDecimals={false} {...axisProps} />
+                <Tooltip {...tooltipStyle} labelFormatter={(v) => fmtMesAno(String(v))} formatter={(v) => [String(v), 'Bezerros']} />
+                <Bar dataKey="qtd" name="Bezerros" radius={[3, 3, 0, 0]} label={{ position: 'top', fontSize: 11, fill: '#52514e' }}>
+                  {apartMeses.map((_, i) => (
+                    <Cell key={i} fill={SERIES[0]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="rounded-lg border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Bezerro(a)</TableHead>
+                  <TableHead>Sexo</TableHead>
+                  <TableHead>Matriz</TableHead>
+                  <TableHead>Nascimento</TableHead>
+                  <TableHead>Idade</TableHead>
+                  <TableHead className="text-right">Peso atual</TableHead>
+                  <TableHead>Apartação prevista</TableHead>
+                  <TableHead className="text-right">Peso projetado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {apartPag.pageItems.map((p) => (
+                  <TableRow key={p.animal.id}>
+                    <TableCell className="font-medium">{p.animal.brinco}</TableCell>
+                    <TableCell>{p.animal.sexo}</TableCell>
+                    <TableCell className="text-muted-foreground">{p.animal.maeBrinco ?? '—'}</TableCell>
+                    <TableCell className="tnum">{fmtDate(p.animal.nascimento)}</TableCell>
+                    <TableCell className="tnum">{fmtIdade(p.animal.nascimento)}</TableCell>
+                    <TableCell className="tnum text-right">{fmtKg(p.animal.pesoAtual)}</TableCell>
+                    <TableCell>
+                      <span className="tnum">{fmtDate(p.dataPrevista)}</span>{' '}
+                      <Badge variant={p.diasRestantes <= 30 ? 'warning' : 'default'}>
+                        {p.diasRestantes <= 0 ? 'no ponto' : `${p.diasRestantes} d`}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="tnum text-right">{fmtKg(p.pesoProjetado)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <TablePagination {...apartPag} />
+            <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+              Apartação prevista = nascimento + 8 meses (240 dias). Peso projetado assume ganho de
+              0,72 kg/dia ao pé até a data.
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="ip">
+          <div className="rounded-lg border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Matriz</TableHead>
+                  <TableHead>Parto anterior</TableHead>
+                  <TableHead>Parto atual</TableHead>
+                  <TableHead className="text-right">IP (dias)</TableHead>
+                  <TableHead>Avaliação</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ipsPag.pageItems.map((ip) => (
+                  <TableRow key={ip.matrizBrinco}>
+                    <TableCell className="font-medium">{ip.matrizBrinco}</TableCell>
+                    <TableCell className="tnum">{fmtDate(ip.partoAnterior)}</TableCell>
+                    <TableCell className="tnum">{fmtDate(ip.partoAtual)}</TableCell>
+                    <TableCell className="tnum text-right font-semibold">{ip.ipDias}</TableCell>
+                    <TableCell>
+                      <Badge variant={ip.ipDias <= 395 ? 'good' : ip.ipDias <= 420 ? 'warning' : 'critical'}>
+                        {ip.ipDias <= 395 ? 'Boa' : ip.ipDias <= 420 ? 'Atenção' : 'Descarte sugerido'}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <TablePagination {...ipsPag} />
+            <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+              IP = intervalo entre o parto da safra anterior e o da safra atual, matriz a matriz.
+              Referência: até 395 dias boa; acima de 420 candidata a descarte. Média do rebanho:{' '}
+              {m.intervaloPartosDias} dias.
+            </div>
+          </div>
+        </TabsContent>
       </Tabs>
 
       <NovoPartoDialog open={partoOpen} onClose={() => setPartoOpen(false)} />
@@ -207,7 +320,7 @@ function NovoPartoDialog({ open, onClose }: { open: boolean; onClose: () => void
       sexo,
       pesoNascer: Number(peso),
       dificuldade: Number(dif) as 1 | 2 | 3 | 4 | 5,
-      estacaoId: estacoes.find((e) => e.status === 'encerrada')?.id ?? 'EM-2425',
+      estacaoId: estacoes.find((e) => e.status === 'encerrada')?.id ?? 'EM-PASS',
     })
     toast(`Parto registrado — ${bezerro} criado automaticamente no Rebanho.`)
     setMatriz(''); setBezerro('')

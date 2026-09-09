@@ -298,19 +298,29 @@ function SaidaAnimalDialog({
   onDone: () => void
 }) {
   const removeAnimal = useStore((s) => s.removeAnimal)
+  const addLancamento = useStore((s) => s.addLancamento)
   const [motivo, setMotivo] = useState<'venda' | 'morte'>('venda')
+  const [valor, setValor] = useState('')
 
   return (
     <Dialog open={open} onClose={onClose} title={`Registrar saída — ${animal.brinco}`} className="max-w-md">
-      <FormRow label="Motivo da saída">
-        <Select value={motivo} onChange={(e) => setMotivo(e.target.value as 'venda' | 'morte')}>
-          <option value="venda">Venda</option>
-          <option value="morte">Morte</option>
-        </Select>
-      </FormRow>
+      <div className="grid grid-cols-2 gap-3">
+        <FormRow label="Motivo da saída">
+          <Select value={motivo} onChange={(e) => setMotivo(e.target.value as 'venda' | 'morte')}>
+            <option value="venda">Venda</option>
+            <option value="morte">Morte</option>
+          </Select>
+        </FormRow>
+        {motivo === 'venda' && (
+          <FormRow label="Valor da venda (R$, opcional)">
+            <Input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="2800" />
+          </FormRow>
+        )}
+      </div>
       <p className="mt-3 text-[13px] text-muted-foreground">
         O animal sai do inventário ativo e a {motivo === 'venda' ? 'venda' : 'morte'} é registrada no
         livro de movimentação com a data de hoje.
+        {motivo === 'venda' && ' Se o valor for informado, a receita entra no Financeiro.'}
       </p>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
@@ -318,7 +328,24 @@ function SaidaAnimalDialog({
           variant="destructive"
           onClick={() => {
             removeAnimal(animal.id, motivo)
-            toast(`Saída de ${animal.brinco} registrada (${motivo === 'venda' ? 'venda' : 'morte'}).`)
+            const v = Number(valor)
+            if (motivo === 'venda' && v > 0) {
+              addLancamento({
+                tipo: 'receita',
+                categoria: 'Venda de animais',
+                descricao: `Venda do animal ${animal.brinco}`,
+                valor: v,
+                vencimento: hojeISO(),
+                pagamento: hojeISO(),
+                origem: 'venda_animal',
+                refId: animal.id,
+              })
+            }
+            toast(
+              motivo === 'venda' && v > 0
+                ? `Venda de ${animal.brinco} registrada — receita lançada no Financeiro.`
+                : `Saída de ${animal.brinco} registrada (${motivo === 'venda' ? 'venda' : 'morte'}).`,
+            )
             onClose()
             onDone()
           }}

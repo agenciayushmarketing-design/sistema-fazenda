@@ -6,19 +6,27 @@ import type {
   Animal,
   Desmame,
   DiagnosticoGestacao,
+  Lancamento,
+  Manutencao,
   MovEstoque,
   Movimentacao,
+  NotaOS,
+  OrdemServico,
   Parto,
   Pedido,
+  PerfilDemo,
   Pesagem,
+  ProducaoLeite,
   ProtocoloIATF,
   SeedData,
+  StatusOS,
 } from '@/data/types'
 
 const STORAGE_KEY = 'fazenda-santa-helena-demo'
 
 interface Actions {
   resetDemo: () => void
+  setPerfil: (perfil: PerfilDemo) => void
 
   // Rebanho
   addAnimal: (a: Animal, mov?: Omit<Movimentacao, 'id'>) => void
@@ -49,6 +57,22 @@ interface Actions {
   updatePedido: (id: string, patch: Partial<Pedido>) => void
   removePedido: (id: string) => void
   receberPedido: (id: string) => void
+
+  // Financeiro
+  addLancamento: (l: Omit<Lancamento, 'id'>) => void
+  pagarLancamento: (id: string) => void
+  removeLancamento: (id: string) => { ok: boolean; erro?: string }
+
+  // Máquinas — manutenção também vira despesa no Financeiro
+  addManutencao: (maquinaId: string, m: Omit<Manutencao, 'id'>) => void
+
+  // Ordens de serviço
+  addOS: (os: Omit<OrdemServico, 'id' | 'numero' | 'notas'>) => void
+  updateOSStatus: (id: string, status: StatusOS) => void
+  addNotaOS: (id: string, nota: NotaOS) => void
+
+  // Leite
+  addProducaoLeite: (p: ProducaoLeite) => void
 }
 
 export type Store = SeedData & Actions
@@ -59,11 +83,17 @@ const nid = (prefix: string) => `${prefix}-${++seq}`
 export const useStore = create<Store>()(
   persist(
     (set, get) => ({
-      ...buildSeed(),
+      ...buildSeed('ciclo_completo'),
 
       resetDemo: () => {
+        const perfil = get().perfil
         localStorage.removeItem(STORAGE_KEY)
-        set(buildSeed(), false)
+        set(buildSeed(perfil), false)
+      },
+
+      setPerfil: (perfil) => {
+        localStorage.removeItem(STORAGE_KEY)
+        set(buildSeed(perfil), false)
       },
 
       addAnimal: (a, movi) =>
@@ -132,7 +162,7 @@ export const useStore = create<Store>()(
             categoria: p.sexo === 'M' ? 'bezerro' : 'bezerra',
             raca: matriz?.raca ?? 'Nelore',
             nascimento: p.data,
-            loteId: matriz?.loteId ?? 'L-SR',
+            loteId: matriz?.loteId ?? s.lotes[0]?.id ?? '',
             maeBrinco: p.matrizBrinco,
             pesoAtual: p.pesoNascer,
             pesagens: [{ data: p.data, peso: p.pesoNascer }],
@@ -159,8 +189,6 @@ export const useStore = create<Store>()(
           }
         }),
 
-      // Cascata: remove também o animal e a movimentação de nascimento.
-      // Bloqueia se houver desmame vinculado (removeria histórico rastreável).
       removeParto: (id) => {
         const s = get()
         const parto = s.partos.find((p) => p.id === id)
@@ -229,7 +257,7 @@ export const useStore = create<Store>()(
           ),
         })),
 
-      // Protocolo IATF dá baixa das doses no estoque de sêmen (identidade doses = saída)
+      // Protocolo IATF dá baixa das doses no estoque de sêmen
       addProtocolo: (p) => {
         const s = get()
         const item = s.estoque.find((i) => i.id === p.semenItemId)
@@ -266,7 +294,6 @@ export const useStore = create<Store>()(
           diagnosticos: s.diagnosticos.map((d) => (d.id === id ? { ...d, ...patch } : d)),
         })),
 
-      // Saída de consumo valida saldo — estoque nunca fica negativo
       addSaidaEstoque: (m) => {
         const s = get()
         const item = s.estoque.find((i) => i.id === m.itemId)
@@ -302,12 +329,13 @@ export const useStore = create<Store>()(
       removePedido: (id) =>
         set((s) => ({ pedidos: s.pedidos.filter((p) => p.id !== id) })),
 
-      // Marcar como recebido gera entradas correspondentes no Estoque
+      // Receber pedido: entradas no Estoque + despesa paga no Financeiro
       receberPedido: (id) =>
         set((s) => {
           const ped = s.pedidos.find((p) => p.id === id)
           if (!ped || ped.status === 'recebido') return s
           const data = hojeISO()
+          const total = ped.itens.reduce((si, i) => si + i.quantidade * i.valorUnitario, 0)
           const novasEntradas: MovEstoque[] = ped.itens.map((it) => ({
             id: nid('ME'),
             data,
@@ -336,12 +364,120 @@ export const useStore = create<Store>()(
               ...s.precosHistoricos,
               ...ped.itens.map((it) => ({ itemEstoqueId: it.itemEstoqueId, data, preco: it.valorUnitario })),
             ],
+            lancamentos: [
+              ...s.lancamentos,
+              {
+                id: nid('LC'),
+                tipo: 'despesa' as const,
+                categoria: 'Insumos',
+                descricao: `Pedido ${ped.numero} — ${ped.fornecedor}`,
+                valor: total,
+                vencimento: data,
+                pagamento: data,
+                origem: 'pedido' as const,
+                refId: ped.id,
+              },
+            ],
           }
         }),
+
+      addLancamento: (l) =>
+        set((s) => ({ lancamentos: [...s.lancamentos, { id: nid('LC'), ...l }] })),
+
+      pagarLancamento: (id) =>
+        set((s) => ({
+          lancamentos: s.lancamentos.map((l) =>
+            l.id === id && !l.pagamento ? { ...l, pagamento: hojeISO() } : l,
+          ),
+        })),
+
+      removeLancamento: (id) => {
+        const s = get()
+        const l = s.lancamentos.find((x) => x.id === id)
+        if (!l) return { ok: false, erro: 'Lançamento não encontrado.' }
+        if (l.origem !== 'manual') {
+          return { ok: false, erro: 'Só lançamentos manuais podem ser excluídos — os demais têm origem rastreável.' }
+        }
+        set({ lancamentos: s.lancamentos.filter((x) => x.id !== id) })
+        return { ok: true }
+      },
+
+      addManutencao: (maquinaId, m) =>
+        set((s) => {
+          const maq = s.maquinas.find((x) => x.id === maquinaId)
+          if (!maq) return s
+          const manut: Manutencao = { id: nid('MT'), ...m }
+          return {
+            maquinas: s.maquinas.map((x) =>
+              x.id === maquinaId
+                ? {
+                    ...x,
+                    manutencoes: [...x.manutencoes, manut],
+                    horimetro:
+                      m.horimetro !== undefined && x.horimetro !== undefined
+                        ? Math.max(x.horimetro, m.horimetro)
+                        : x.horimetro,
+                  }
+                : x,
+            ),
+            lancamentos: [
+              ...s.lancamentos,
+              {
+                id: nid('LC'),
+                tipo: 'despesa' as const,
+                categoria: 'Manutenção',
+                descricao: `${m.descricao} — ${maq.nome}`,
+                valor: m.custo,
+                vencimento: m.data,
+                pagamento: m.data,
+                origem: 'manutencao' as const,
+                refId: manut.id,
+              },
+            ],
+          }
+        }),
+
+      addOS: (os) =>
+        set((s) => ({
+          ordensServico: [
+            ...s.ordensServico,
+            {
+              id: nid('OS'),
+              numero: `OS-${String(47 + s.ordensServico.length).padStart(3, '0')}`,
+              notas: [],
+              ...os,
+            },
+          ],
+        })),
+
+      updateOSStatus: (id, status) =>
+        set((s) => ({
+          ordensServico: s.ordensServico.map((o) =>
+            o.id === id
+              ? { ...o, status, conclusao: status === 'concluida' ? hojeISO() : undefined }
+              : o,
+          ),
+        })),
+
+      addNotaOS: (id, nota) =>
+        set((s) => ({
+          ordensServico: s.ordensServico.map((o) =>
+            o.id === id ? { ...o, notas: [...o.notas, nota] } : o,
+          ),
+        })),
+
+      addProducaoLeite: (p) =>
+        set((s) => ({
+          producaoLeite: [...s.producaoLeite.filter((x) => x.data !== p.data), p].sort((a, b) =>
+            a.data.localeCompare(b.data),
+          ),
+        })),
     }),
     {
       name: STORAGE_KEY,
-      version: 1,
+      version: 2,
+      // dados persistidos de versões anteriores não têm os novos módulos → re-semeia
+      migrate: () => buildSeed('ciclo_completo') as unknown as Store,
     },
   ),
 )

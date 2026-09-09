@@ -1,5 +1,7 @@
 // Tipos do domínio — Fazenda Santa Helena (demo)
 
+export type PerfilDemo = 'ciclo_completo' | 'cria_120' | 'corte_leite'
+
 export type Categoria =
   | 'bezerro'
   | 'bezerra'
@@ -21,7 +23,7 @@ export const CATEGORIA_LABEL: Record<Categoria, string> = {
   boi_terminacao: 'Boi terminação',
 }
 
-export type Raca = 'Nelore PO' | 'Nelore'
+export type Raca = 'Nelore PO' | 'Nelore' | 'Girolando'
 
 export interface Pasto {
   id: string
@@ -35,7 +37,7 @@ export interface Lote {
   id: string
   nome: string
   pastoId: string
-  finalidade: 'cria' | 'recria' | 'terminacao' | 'reproducao'
+  finalidade: 'cria' | 'recria' | 'terminacao' | 'reproducao' | 'leite'
 }
 
 export interface Pesagem {
@@ -55,6 +57,7 @@ export interface Animal {
   sexo: 'M' | 'F'
   categoria: Categoria
   raca: Raca
+  aptidao?: 'corte' | 'leite'
   nascimento: string
   loteId: string
   maeBrinco?: string
@@ -227,8 +230,81 @@ export interface PrecoHistorico {
   preco: number
 }
 
+// ---- Financeiro ----
+export type OrigemLancamento = 'pedido' | 'manutencao' | 'venda_animal' | 'leite' | 'fixa' | 'manual'
+
+export interface Lancamento {
+  id: string
+  tipo: 'receita' | 'despesa'
+  categoria: string // Insumos, Pessoal, Energia, Manutenção, Venda de animais, Leite…
+  descricao: string
+  valor: number
+  vencimento: string
+  pagamento?: string // presente = pago/recebido
+  origem: OrigemLancamento
+  refId?: string // pedido, manutenção, etc.
+  centroCusto?: CentroCusto
+}
+
+// ---- Máquinas ----
+export interface Manutencao {
+  id: string
+  data: string
+  tipo: 'preventiva' | 'corretiva'
+  descricao: string
+  custo: number
+  horimetro?: number
+}
+
+export interface Maquina {
+  id: string
+  nome: string
+  tipo: string // trator, implemento, ordenha…
+  ano: number
+  horimetro?: number // horas de uso (quando se aplica)
+  proximaRevisaoHorimetro?: number
+  proximaRevisaoData?: string
+  manutencoes: Manutencao[]
+}
+
+// ---- Ordens de serviço ----
+export type TipoOS = 'manutencao' | 'pastagem' | 'cerca' | 'sanitario' | 'infraestrutura' | 'outro'
+export type StatusOS = 'aberta' | 'em_andamento' | 'concluida'
+
+export interface NotaOS {
+  data: string
+  texto: string
+}
+
+export interface OrdemServico {
+  id: string
+  numero: string
+  titulo: string
+  tipo: TipoOS
+  vinculo?: string // máquina, pasto ou lote relacionado
+  responsavel: string
+  abertura: string
+  prazo?: string
+  status: StatusOS
+  conclusao?: string
+  notas: NotaOS[]
+}
+
+// ---- Leite ----
+export interface ProducaoLeite {
+  data: string
+  litros: number
+}
+
+export interface ConfigLeite {
+  vacasLactacao: number
+  precoLitro: number
+  mediaLitrosVacaDia: number
+}
+
 // ---- Dataset completo ----
 export interface SeedData {
+  perfil: PerfilDemo
   geradoEm: string
   fazenda: {
     nome: string
@@ -241,6 +317,7 @@ export interface SeedData {
   movimentacoes: Movimentacao[]
   estacoes: EstacaoMonta[]
   partos: Parto[]
+  partosAnteriores: Parto[] // safra anterior — base do IP por matriz
   desmames: Desmame[]
   lotesRecria: LoteRecria[]
   protocolosIATF: ProtocoloIATF[]
@@ -250,4 +327,9 @@ export interface SeedData {
   movEstoque: MovEstoque[]
   pedidos: Pedido[]
   precosHistoricos: PrecoHistorico[]
+  lancamentos: Lancamento[]
+  maquinas: Maquina[]
+  ordensServico: OrdemServico[]
+  producaoLeite: ProducaoLeite[]
+  leite?: ConfigLeite
 }

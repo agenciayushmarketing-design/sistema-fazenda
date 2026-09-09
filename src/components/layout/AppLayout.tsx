@@ -10,12 +10,19 @@ import {
   ShoppingCart,
   RotateCcw,
   Search,
+  Wallet,
+  Tractor,
+  ClipboardList,
+  Milk,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStore } from '@/store/useStore'
+import { PERFIL_INFO } from '@/data/seed'
+import type { PerfilDemo } from '@/data/types'
 import { fmtDate, hojeISO } from '@/lib/format'
 import { Toaster, toast } from '@/components/ui/toast'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Select } from '@/components/ui/select'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -23,17 +30,27 @@ const NAV = [
   { to: '/cria', label: 'Cria', icon: Baby },
   { to: '/recria', label: 'Recria', icon: TrendingUp },
   { to: '/reproducao', label: 'Reprodução', icon: HeartPulse },
+  { to: '/leite', label: 'Leite', icon: Milk },
   { to: '/estoque', label: 'Estoque', icon: Package },
   { to: '/compras', label: 'Compras', icon: ShoppingCart },
+  { to: '/financeiro', label: 'Financeiro', icon: Wallet },
+  { to: '/maquinas', label: 'Máquinas', icon: Tractor },
+  { to: '/os', label: 'Ordens de serviço', icon: ClipboardList },
 ]
 
 export function AppLayout() {
   const fazenda = useStore((s) => s.fazenda)
+  const perfil = useStore((s) => s.perfil)
   const resetDemo = useStore((s) => s.resetDemo)
+  const setPerfil = useStore((s) => s.setPerfil)
   const animais = useStore((s) => s.animais)
   const navigate = useNavigate()
   const [busca, setBusca] = useState('')
   const [resetOpen, setResetOpen] = useState(false)
+  const [perfilPendente, setPerfilPendente] = useState<PerfilDemo | null>(null)
+
+  const info = PERFIL_INFO[perfil]
+  const navVisivel = NAV.filter((n) => info.modulos.includes(n.to))
 
   const buscarBrinco = () => {
     const q = busca.trim().toLowerCase()
@@ -56,11 +73,29 @@ export function AppLayout() {
         <div className="border-b px-4 py-3">
           <div className="text-sm font-bold leading-tight">{fazenda.nome}</div>
           <div className="mt-0.5 text-[11px] text-muted-foreground">
-            {fazenda.areaHa} ha · Nelore · ciclo completo
+            {fazenda.areaHa} ha · {info.descricao}
           </div>
         </div>
-        <nav className="flex-1 space-y-0.5 p-2">
-          {NAV.map(({ to, label, icon: Icon }) => (
+        <div className="border-b px-3 py-2">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Perfil da demonstração
+          </div>
+          <Select
+            value={perfil}
+            onChange={(e) => {
+              const novo = e.target.value as PerfilDemo
+              if (novo !== perfil) setPerfilPendente(novo)
+            }}
+            className="h-7 text-xs"
+            aria-label="Perfil da demonstração"
+          >
+            {(Object.keys(PERFIL_INFO) as PerfilDemo[]).map((p) => (
+              <option key={p} value={p}>{PERFIL_INFO[p].nome}</option>
+            ))}
+          </Select>
+        </div>
+        <nav className="flex-1 space-y-0.5 overflow-y-auto p-2">
+          {navVisivel.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -137,8 +172,24 @@ export function AppLayout() {
         confirmLabel="Restaurar"
         tone="destructive"
       >
-        Todas as alterações feitas localmente serão descartadas e o conjunto de dados original será
-        gerado novamente com datas relativas a hoje.
+        Todas as alterações feitas localmente serão descartadas e o conjunto de dados do perfil atual
+        será gerado novamente com datas relativas a hoje.
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={perfilPendente !== null}
+        onClose={() => setPerfilPendente(null)}
+        onConfirm={() => {
+          if (!perfilPendente) return
+          setPerfil(perfilPendente)
+          navigate('/')
+          toast(`Perfil "${PERFIL_INFO[perfilPendente].nome}" carregado.`)
+        }}
+        title="Trocar perfil da demonstração"
+        confirmLabel="Trocar perfil"
+      >
+        Carregar o perfil <strong>{perfilPendente ? PERFIL_INFO[perfilPendente].nome : ''}</strong>?
+        As alterações feitas no perfil atual serão descartadas e um novo conjunto de dados será gerado.
       </ConfirmDialog>
 
       <Toaster />

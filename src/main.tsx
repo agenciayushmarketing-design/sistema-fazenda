@@ -10,6 +10,10 @@ import Recria from '@/pages/Recria'
 import Reproducao from '@/pages/Reproducao'
 import Estoque from '@/pages/Estoque'
 import Compras from '@/pages/Compras'
+import Financeiro from '@/pages/Financeiro'
+import Maquinas from '@/pages/Maquinas'
+import OrdensServico from '@/pages/OrdensServico'
+import Leite from '@/pages/Leite'
 import './index.css'
 
 const router = createHashRouter([
@@ -22,8 +26,12 @@ const router = createHashRouter([
       { path: '/cria', element: <Cria /> },
       { path: '/recria', element: <Recria /> },
       { path: '/reproducao', element: <Reproducao /> },
+      { path: '/leite', element: <Leite /> },
       { path: '/estoque', element: <Estoque /> },
       { path: '/compras', element: <Compras /> },
+      { path: '/financeiro', element: <Financeiro /> },
+      { path: '/maquinas', element: <Maquinas /> },
+      { path: '/os', element: <OrdensServico /> },
     ],
   },
 ])
