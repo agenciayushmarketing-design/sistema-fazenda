@@ -25,6 +25,7 @@ const ORIGEM_LABEL: Record<OrigemLancamento, string> = {
   pedido: 'Compras',
   manutencao: 'Manutenção',
   venda_animal: 'Venda de animais',
+  compra_animal: 'Compra de animais',
   leite: 'Leite',
   fixa: 'Despesa fixa',
   manual: 'Manual',

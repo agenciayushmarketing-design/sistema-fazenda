@@ -5,7 +5,7 @@ import { buildSeed, diffDays, KG_POR_ARROBA, PERFIS } from './seed'
 import type { PerfilDemo } from './types'
 
 const HOJE = '2026-09-09' // data fixa para o teste ser determinístico
-const PERFIS_LISTA: PerfilDemo[] = ['ciclo_completo', 'cria_120', 'corte_leite']
+const PERFIS_LISTA: PerfilDemo[] = ['ciclo_completo', 'cria_150', 'corte_leite']
 
 describe.each(PERFIS_LISTA)('coerência do seed — perfil %s', (perfil) => {
   const seed = buildSeed(perfil, HOJE)
@@ -20,9 +20,9 @@ describe.each(PERFIS_LISTA)('coerência do seed — perfil %s', (perfil) => {
     const soma = [...porCategoria.values()].reduce((a, b) => a + b, 0)
     expect(soma).toBe(seed.fazenda.totalCabecas)
     if (perfil === 'ciclo_completo') expect(soma).toBe(1200)
-    if (perfil === 'cria_120') {
-      // rebanho de cria: 120 matrizes exatas
-      expect(porCategoria.get('vaca')).toBe(120)
+    if (perfil === 'cria_150') {
+      // rebanho de cria: 150 matrizes exatas
+      expect(porCategoria.get('vaca')).toBe(150)
     }
   })
 
@@ -147,7 +147,7 @@ describe.each(PERFIS_LISTA)('coerência do seed — perfil %s', (perfil) => {
       expect(custoPorArroba).toBeGreaterThan(100)
       expect(custoPorArroba).toBeLessThan(600)
     } else {
-      expect(perfil).toBe('cria_120') // só o perfil de cria pura não produz arrobas em recria
+      expect(perfil).toBe('cria_150') // só o perfil de cria pura não produz arrobas em recria
     }
   })
 

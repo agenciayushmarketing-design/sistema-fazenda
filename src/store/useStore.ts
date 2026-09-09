@@ -1,9 +1,11 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { buildSeed } from '@/data/seed'
+import { addDays, buildSeed } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
+import { CATEGORIA_LABEL } from '@/data/types'
 import type {
   Animal,
+  Categoria,
   Desmame,
   DiagnosticoGestacao,
   Lancamento,
@@ -34,6 +36,22 @@ interface Actions {
   removeAnimal: (id: string, motivo: 'morte' | 'venda') => void
   addPesagemAnimal: (id: string, pes: Pesagem) => void
   addMovimentacao: (m: Omit<Movimentacao, 'id'>) => void
+  /** Venda em lote: baixa os animais, registra no livro e lança a receita no Financeiro */
+  venderAnimais: (p: {
+    categoria: Categoria
+    qtd: number
+    valorTotal: number
+    comprador?: string
+  }) => { ok: boolean; erro?: string }
+  /** Compra em lote: cria os animais, registra no livro e lança a despesa no Financeiro */
+  comprarAnimais: (p: {
+    categoria: Categoria
+    qtd: number
+    pesoMedio: number
+    valorTotal: number
+    vendedor?: string
+    loteId: string
+  }) => void
 
   // Cria — mutações mantêm as identidades do seed (parto cria o animal, etc.)
   addParto: (p: Omit<Parto, 'id'>) => void
@@ -150,6 +168,120 @@ export const useStore = create<Store>()(
 
       addMovimentacao: (m) =>
         set((s) => ({ movimentacoes: [...s.movimentacoes, { id: nid('MV'), ...m }] })),
+
+      venderAnimais: ({ categoria, qtd, valorTotal, comprador }) => {
+        const s = get()
+        const candidatos = s.animais.filter((a) => a.status === 'ativo' && a.categoria === categoria)
+        if (qtd <= 0) return { ok: false, erro: 'Informe a quantidade.' }
+        if (candidatos.length < qtd) {
+          return {
+            ok: false,
+            erro: `Só há ${candidatos.length} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) ativos no rebanho.`,
+          }
+        }
+        const vendidos = candidatos.slice(0, qtd)
+        const ids = new Set(vendidos.map((a) => a.id))
+        const hoje = hojeISO()
+        set({
+          animais: s.animais.map((a) => (ids.has(a.id) ? { ...a, status: 'vendido' as const } : a)),
+          movimentacoes: [
+            ...s.movimentacoes,
+            {
+              id: nid('MV'),
+              data: hoje,
+              tipo: 'venda' as const,
+              brinco: qtd === 1 ? vendidos[0].brinco : `${vendidos[0].brinco} … ${vendidos[qtd - 1].brinco}`,
+              categoria,
+              quantidade: qtd,
+              origem: 'Rebanho',
+              obs: comprador ? `Comprador: ${comprador}` : 'Venda em lote',
+            },
+          ],
+          lancamentos:
+            valorTotal > 0
+              ? [
+                  ...s.lancamentos,
+                  {
+                    id: nid('LC'),
+                    tipo: 'receita' as const,
+                    categoria: 'Venda de animais',
+                    descricao: `Venda de ${qtd} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s)${comprador ? ` — ${comprador}` : ''}`,
+                    valor: valorTotal,
+                    vencimento: hoje,
+                    pagamento: hoje,
+                    origem: 'venda_animal' as const,
+                  },
+                ]
+              : s.lancamentos,
+          fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - qtd },
+        })
+        return { ok: true }
+      },
+
+      comprarAnimais: ({ categoria, qtd, pesoMedio, valorTotal, vendedor, loteId }) =>
+        set((s) => {
+          const hoje = hojeISO()
+          // idade típica estimada por categoria (meses) para preencher o nascimento
+          const idadeMeses: Record<Categoria, number> = {
+            bezerro: 6, bezerra: 6, garrote: 18, novilha_13_24: 18,
+            novilha_24: 28, vaca: 60, touro: 48, boi_terminacao: 30,
+          }
+          const sexoF: Categoria[] = ['bezerra', 'novilha_13_24', 'novilha_24', 'vaca']
+          const base = s.animais.filter((a) => a.brinco.startsWith('CP-')).length
+          const novos: Animal[] = []
+          for (let i = 0; i < qtd; i++) {
+            // offsets espelhados: média do lote comprado = peso médio informado
+            const off = i % 2 === 0 ? (i % 12) * 1.5 : -((i - 1) % 12) * 1.5
+            const peso = Math.round((pesoMedio + off) * 10) / 10
+            novos.push({
+              id: nid('A'),
+              brinco: `CP-${String(base + i + 1).padStart(3, '0')}`,
+              sexo: sexoF.includes(categoria) ? 'F' : 'M',
+              categoria,
+              raca: 'Nelore',
+              nascimento: addDays(hoje, -idadeMeses[categoria] * 30),
+              loteId,
+              pesoAtual: peso,
+              pesagens: [{ data: hoje, peso }],
+              sanitario: [],
+              status: 'ativo',
+            })
+          }
+          const loteNome = s.lotes.find((l) => l.id === loteId)?.nome ?? loteId
+          return {
+            animais: [...s.animais, ...novos],
+            movimentacoes: [
+              ...s.movimentacoes,
+              {
+                id: nid('MV'),
+                data: hoje,
+                tipo: 'compra' as const,
+                brinco: qtd === 1 ? novos[0].brinco : `${novos[0].brinco} … ${novos[qtd - 1].brinco}`,
+                categoria,
+                quantidade: qtd,
+                destino: loteNome,
+                obs: vendedor ? `Vendedor: ${vendedor}` : 'Compra em lote',
+              },
+            ],
+            lancamentos:
+              valorTotal > 0
+                ? [
+                    ...s.lancamentos,
+                    {
+                      id: nid('LC'),
+                      tipo: 'despesa' as const,
+                      categoria: 'Compra de animais',
+                      descricao: `Compra de ${qtd} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s)${vendedor ? ` — ${vendedor}` : ''}`,
+                      valor: valorTotal,
+                      vencimento: hoje,
+                      pagamento: hoje,
+                      origem: 'compra_animal' as const,
+                    },
+                  ]
+                : s.lancamentos,
+            fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas + qtd },
+          }
+        }),
 
       // Parto cria o bezerro no Rebanho: inventário e livro permanecem coerentes
       addParto: (p) =>
@@ -475,8 +607,8 @@ export const useStore = create<Store>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 2,
-      // dados persistidos de versões anteriores não têm os novos módulos → re-semeia
+      version: 3, // v3: perfil cria_120 → cria_150
+      // dados persistidos de versões anteriores não têm os novos módulos/perfis → re-semeia
       migrate: () => buildSeed('ciclo_completo') as unknown as Store,
     },
   ),

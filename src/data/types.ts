@@ -1,6 +1,6 @@
 // Tipos do domínio — Fazenda Santa Helena (demo)
 
-export type PerfilDemo = 'ciclo_completo' | 'cria_120' | 'corte_leite'
+export type PerfilDemo = 'ciclo_completo' | 'cria_150' | 'corte_leite'
 
 export type Categoria =
   | 'bezerro'
@@ -231,7 +231,14 @@ export interface PrecoHistorico {
 }
 
 // ---- Financeiro ----
-export type OrigemLancamento = 'pedido' | 'manutencao' | 'venda_animal' | 'leite' | 'fixa' | 'manual'
+export type OrigemLancamento =
+  | 'pedido'
+  | 'manutencao'
+  | 'venda_animal'
+  | 'compra_animal'
+  | 'leite'
+  | 'fixa'
+  | 'manual'
 
 export interface Lancamento {
   id: string

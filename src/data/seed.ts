@@ -367,19 +367,19 @@ const PERFIL_CICLO: PerfilParams = {
 }
 
 // ---------------------------------------------------------------------
-// PERFIL 2 — Cria, 120 matrizes (o pedido do lead de cria)
+// PERFIL 2 — Cria pura, pequena propriedade (150 matrizes)
 // ---------------------------------------------------------------------
 
 const PERFIL_CRIA: PerfilParams = {
-  nomePerfil: 'Cria — 120 matrizes',
-  fazenda: { nome: 'Sítio Boa Esperança', areaHa: 150 },
+  nomePerfil: 'Cria — 150 matrizes',
+  fazenda: { nome: 'Sítio Boa Esperança', areaHa: 180 },
   seedRandom: 20260901,
-  inventario: { vaca: 120, vacaLeite: 0, touro: 4, novilha_24: 14, boi_terminacao: 0 },
+  inventario: { vaca: 150, vacaLeite: 0, touro: 4, novilha_24: 14, boi_terminacao: 0 },
   novilhasJovens: { qtd: 18, loteId: 'L-NOV', prefixo: 'NJ' },
   pastos: [
-    { id: 'P1', nome: 'Pasto Sede', areaHa: 60, capacidadeUA: 90, tipo: 'pasto' },
-    { id: 'P2', nome: 'Pasto do Rio', areaHa: 55, capacidadeUA: 80, tipo: 'pasto' },
-    { id: 'P3', nome: 'Pasto Novo', areaHa: 35, capacidadeUA: 50, tipo: 'pasto' },
+    { id: 'P1', nome: 'Pasto Sede', areaHa: 70, capacidadeUA: 100, tipo: 'pasto' },
+    { id: 'P2', nome: 'Pasto do Rio', areaHa: 65, capacidadeUA: 95, tipo: 'pasto' },
+    { id: 'P3', nome: 'Pasto Novo', areaHa: 45, capacidadeUA: 60, tipo: 'pasto' },
   ],
   lotes: [
     { id: 'L-M1', nome: 'Matrizes Sede', pastoId: 'P1', finalidade: 'cria' },
@@ -389,11 +389,11 @@ const PERFIL_CRIA: PerfilParams = {
   lotesCriaIds: ['L-M1', 'L-M2'],
   loteNovilhasId: 'L-NOV',
   cria: {
-    matrizesExpostasSafraPassada: 120,
-    partos: 95,
-    mortesPreDesmame: 4,
+    matrizesExpostasSafraPassada: 150,
+    partos: 118,
+    mortesPreDesmame: 5,
     mortesMachos: 2,
-    machosNascidos: 48,
+    machosNascidos: 60,
     nascimentoIniDias: -210, // safra mais recente: bezerros de 1 a 7 meses, todos ao pé
     nascimentoFimDias: -30,
     pesoNascerMedio: 31,
@@ -406,19 +406,19 @@ const PERFIL_CRIA: PerfilParams = {
   reproducao: {
     estacaoInicioDias: -60,
     estacaoFimDias: 60,
-    matrizesExpostas: 110,
+    matrizesExpostas: 135,
     protocolos: [
-      { id: 'IATF-1', nome: 'IATF Lote Sede', loteDescricao: 'Vacas paridas — Sede', matrizes: 55, d0Dias: -52, produto: 'Sincrogest + eCG', inseminador: 'João Batista', touroSemen: 'REM Armador', semenItemId: 'SEM-ARM' },
-      { id: 'IATF-2', nome: 'IATF Lote Rio', loteDescricao: 'Vacas paridas — Rio', matrizes: 55, d0Dias: -48, produto: 'Sincrogest + eCG', inseminador: 'João Batista', touroSemen: 'REM Armador', semenItemId: 'SEM-ARM' },
+      { id: 'IATF-1', nome: 'IATF Lote Sede', loteDescricao: 'Vacas paridas — Sede', matrizes: 68, d0Dias: -52, produto: 'Sincrogest + eCG', inseminador: 'João Batista', touroSemen: 'REM Armador', semenItemId: 'SEM-ARM' },
+      { id: 'IATF-2', nome: 'IATF Lote Rio', loteDescricao: 'Vacas paridas — Rio', matrizes: 67, d0Dias: -48, produto: 'Sincrogest + eCG', inseminador: 'João Batista', touroSemen: 'REM Armador', semenItemId: 'SEM-ARM' },
     ],
-    prenhasIATF: 58,
+    prenhasIATF: 70,
     dg30Dias: -18,
     prenhasRepasse: 0, // repasse com touro em andamento — DG do repasse ainda não feito
     dgFinalDias: -2,
-    dgPendentes: 30,
+    dgPendentes: 35,
     tourosRepasse: [
-      { brinco: 'T-01', nome: 'Cacique BE', vacasRepasse: 26, prenhezesRepasse: 0 },
-      { brinco: 'T-02', nome: 'Vendaval BE', vacasRepasse: 26, prenhezesRepasse: 0 },
+      { brinco: 'T-01', nome: 'Cacique BE', vacasRepasse: 33, prenhezesRepasse: 0 },
+      { brinco: 'T-02', nome: 'Vendaval BE', vacasRepasse: 32, prenhezesRepasse: 0 },
     ],
   },
   itensEstoque: [
@@ -435,22 +435,22 @@ const PERFIL_CRIA: PerfilParams = {
     {
       numero: 'PC-2026-011', fornecedor: 'Central Genética Ltda', dataDias: -75, recebidoDias: -66, status: 'recebido',
       rateio: { Cria: 100, Recria: 0, Terminacao: 0, Geral: 0 },
-      itens: [{ itemEstoqueId: 'SEM-ARM', descricao: 'Sêmen REM Armador (dose)', quantidade: 150, valorUnitario: 68 }],
+      itens: [{ itemEstoqueId: 'SEM-ARM', descricao: 'Sêmen REM Armador (dose)', quantidade: 170, valorUnitario: 68 }],
     },
     {
       numero: 'PC-2026-012', fornecedor: 'AgroFarma Distribuidora', dataDias: -70, recebidoDias: -62, status: 'recebido',
       rateio: { Cria: 100, Recria: 0, Terminacao: 0, Geral: 0 },
       itens: [
-        { itemEstoqueId: 'HOR-P4', descricao: 'Implante intravaginal P4', quantidade: 120, valorUnitario: 19 },
-        { itemEstoqueId: 'HOR-ECG', descricao: 'eCG 400 UI (dose)', quantidade: 120, valorUnitario: 15 },
-        { itemEstoqueId: 'HOR-PGF', descricao: 'Prostaglandina (dose)', quantidade: 120, valorUnitario: 6.5 },
+        { itemEstoqueId: 'HOR-P4', descricao: 'Implante intravaginal P4', quantidade: 150, valorUnitario: 19 },
+        { itemEstoqueId: 'HOR-ECG', descricao: 'eCG 400 UI (dose)', quantidade: 150, valorUnitario: 15 },
+        { itemEstoqueId: 'HOR-PGF', descricao: 'Prostaglandina (dose)', quantidade: 150, valorUnitario: 6.5 },
       ],
     },
     {
       numero: 'PC-2026-015', fornecedor: 'AgroFarma Distribuidora', dataDias: -55, recebidoDias: -48, status: 'recebido',
       rateio: { Cria: 0, Recria: 0, Terminacao: 0, Geral: 100 },
       itens: [
-        { itemEstoqueId: 'VAC-AFT', descricao: 'Vacina aftosa (dose)', quantidade: 260, valorUnitario: 1.85 },
+        { itemEstoqueId: 'VAC-AFT', descricao: 'Vacina aftosa (dose)', quantidade: 320, valorUnitario: 1.85 },
         { itemEstoqueId: 'VAC-CLO', descricao: 'Vacina clostridiose (dose)', quantidade: 150, valorUnitario: 1.25 },
       ],
     },
@@ -469,14 +469,14 @@ const PERFIL_CRIA: PerfilParams = {
     },
   ],
   saidasEstoque: [
-    { itemId: 'HOR-P4', dia: -52, quantidade: 110, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
-    { itemId: 'HOR-ECG', dia: -44, quantidade: 110, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
-    { itemId: 'HOR-PGF', dia: -44, quantidade: 110, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
-    { itemId: 'VAC-AFT', dia: -30, quantidade: 245, loteDestino: 'Rebanho geral', obs: 'Campanha aftosa' },
-    { itemId: 'VAC-CLO', dia: -25, quantidade: 95, loteDestino: 'Bezerros(as) da safra' },
-    { itemId: 'SAL-MIN', dia: -30, quantidade: 950, loteDestino: 'Pastos (cocho)', obs: 'Consumo mensal' },
-    { itemId: 'SAL-MIN', dia: -2, quantidade: 950, loteDestino: 'Pastos (cocho)', obs: 'Consumo mensal' },
-    { itemId: 'MED-IVE', dia: -30, quantidade: 6, loteDestino: 'Rebanho geral', obs: 'Vermifugação' },
+    { itemId: 'HOR-P4', dia: -52, quantidade: 135, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
+    { itemId: 'HOR-ECG', dia: -44, quantidade: 135, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
+    { itemId: 'HOR-PGF', dia: -44, quantidade: 135, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
+    { itemId: 'VAC-AFT', dia: -30, quantidade: 300, loteDestino: 'Rebanho geral', obs: 'Campanha aftosa' },
+    { itemId: 'VAC-CLO', dia: -25, quantidade: 115, loteDestino: 'Bezerros(as) da safra' },
+    { itemId: 'SAL-MIN', dia: -30, quantidade: 1100, loteDestino: 'Pastos (cocho)', obs: 'Consumo mensal' },
+    { itemId: 'SAL-MIN', dia: -2, quantidade: 1100, loteDestino: 'Pastos (cocho)', obs: 'Consumo mensal' },
+    { itemId: 'MED-IVE', dia: -30, quantidade: 7, loteDestino: 'Rebanho geral', obs: 'Vermifugação' },
   ],
   historicoPrecosBase: { 'SAL-MIN': 2.05, 'SEM-ARM': 60, 'VAC-AFT': 1.7 },
   despesasFixas: [
@@ -733,7 +733,7 @@ const PERFIL_CORTE_LEITE: PerfilParams = {
 
 export const PERFIS: Record<PerfilDemo, PerfilParams> = {
   ciclo_completo: PERFIL_CICLO,
-  cria_120: PERFIL_CRIA,
+  cria_150: PERFIL_CRIA,
   corte_leite: PERFIL_CORTE_LEITE,
 }
 
@@ -762,11 +762,11 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
       { rotulo: 'Custo/@ e fluxo de caixa', link: '/financeiro' },
     ],
   },
-  cria_120: {
-    nome: 'Cria — 120 matrizes',
+  cria_150: {
+    nome: 'Cria — 150 matrizes',
     descricao: 'Cria pura: partos, IATF, IP e apartação',
     boasVindas:
-      'Pequena propriedade de cria: 120 matrizes, com tudo que importa na produção de bezerros — sem módulos que você não usa.',
+      'Pequena propriedade de cria com tudo que importa na produção de bezerros — sem módulos que você não usa.',
     modulos: ['/', '/rebanho', '/cria', '/reproducao', '/estoque'],
     destaques: [
       { rotulo: 'Partos e desmames da safra', link: '/cria' },

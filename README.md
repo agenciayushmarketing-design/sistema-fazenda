@@ -7,7 +7,7 @@ Aplicação **front-end apenas** (React + Vite + TypeScript + Tailwind + shadcn/
 O seletor na barra lateral troca o cenário inteiro da demo:
 
 - **Ciclo completo** — Fazenda Santa Helena, 800 ha, 1.200 cabeças (cria, recria, terminação)
-- **Cria — 120 matrizes** — Sítio Boa Esperança: partos, IATF, IP por matriz e **previsão de apartação aos 8 meses**
+- **Cria — 150 matrizes** — Sítio Boa Esperança: partos, IATF, IP por matriz e **previsão de apartação aos 8 meses**
 - **Corte & Leite** — Fazenda Dois Córregos: tudo + **Financeiro**, **Máquinas e manutenção**, **Ordens de serviço** e **Leite**
 
 ## Rodar

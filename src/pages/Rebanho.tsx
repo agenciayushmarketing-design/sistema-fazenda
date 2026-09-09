@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus } from 'lucide-react'
+import { Plus, ShoppingCart, Banknote } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, FormRow } from '@/components/shared'
 import {
@@ -17,7 +17,7 @@ import { toast } from '@/components/ui/toast'
 import { useTableSort, usePagination } from '@/hooks/table'
 import { CATEGORIA_LABEL, type Animal, type Categoria, type Movimentacao } from '@/data/types'
 import { inventarioPorCategoria, ativos } from '@/lib/metrics'
-import { fmtDate, fmtIdade, fmtKg, fmtNum, hojeISO, idadeMeses } from '@/lib/format'
+import { fmtBRL, fmtDate, fmtIdade, fmtKg, fmtNum, hojeISO, idadeMeses } from '@/lib/format'
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   nascimento: 'Nascimento',
@@ -65,6 +65,8 @@ export default function Rebanho() {
   const [filtroRaca, setFiltroRaca] = useState('')
   const [filtroIdade, setFiltroIdade] = useState('')
   const [novoOpen, setNovoOpen] = useState(false)
+  const [vendaOpen, setVendaOpen] = useState(false)
+  const [compraOpen, setCompraOpen] = useState(false)
 
   const animaisFiltrados = useMemo(() => {
     return ativos(state.animais)
@@ -97,9 +99,17 @@ export default function Rebanho() {
         title="Rebanho"
         subtitle="Inventário, animais e livro de movimentação"
         actions={
-          <Button onClick={() => setNovoOpen(true)}>
-            <Plus className="h-3.5 w-3.5" /> Novo animal
-          </Button>
+          <>
+            <Button variant="secondary" onClick={() => setCompraOpen(true)}>
+              <ShoppingCart className="h-3.5 w-3.5" /> Comprar animais
+            </Button>
+            <Button variant="secondary" onClick={() => setVendaOpen(true)}>
+              <Banknote className="h-3.5 w-3.5" /> Vender animais
+            </Button>
+            <Button onClick={() => setNovoOpen(true)}>
+              <Plus className="h-3.5 w-3.5" /> Novo animal
+            </Button>
+          </>
         }
       />
 
@@ -241,7 +251,151 @@ export default function Rebanho() {
       </Tabs>
 
       <NovoAnimalDialog open={novoOpen} onClose={() => setNovoOpen(false)} />
+      <VenderAnimaisDialog open={vendaOpen} onClose={() => setVendaOpen(false)} />
+      <ComprarAnimaisDialog open={compraOpen} onClose={() => setCompraOpen(false)} />
     </div>
+  )
+}
+
+function VenderAnimaisDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { animais, venderAnimais } = useStore()
+  const [categoria, setCategoria] = useState<Categoria>('boi_terminacao')
+  const [qtd, setQtd] = useState('')
+  const [valor, setValor] = useState('')
+  const [comprador, setComprador] = useState('')
+  const [erro, setErro] = useState('')
+
+  const disponiveis = ativos(animais).filter((a) => a.categoria === categoria).length
+  const q = Number(qtd)
+  const v = Number(valor)
+  const porCabeca = q > 0 && v > 0 ? v / q : 0
+
+  const salvar = () => {
+    if (!q || q <= 0 || !v || v <= 0) {
+      setErro('Informe quantidade e valor total da venda.')
+      return
+    }
+    const r = venderAnimais({ categoria, qtd: q, valorTotal: v, comprador: comprador.trim() || undefined })
+    if (!r.ok) {
+      setErro(r.erro ?? 'Não foi possível registrar a venda.')
+      return
+    }
+    toast(`Venda de ${q} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) registrada — receita de ${fmtBRL(v)} no Financeiro.`)
+    setQtd(''); setValor(''); setComprador(''); setErro('')
+    onClose()
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Vender animais">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormRow label="Categoria">
+          <Select value={categoria} onChange={(e) => { setCategoria(e.target.value as Categoria); setErro('') }}>
+            {Object.entries(CATEGORIA_LABEL).map(([va, l]) => (
+              <option key={va} value={va}>{l}</option>
+            ))}
+          </Select>
+        </FormRow>
+        <FormRow label={`Quantidade (disponíveis: ${fmtNum(disponiveis)})`}>
+          <Input type="number" min="1" value={qtd} onChange={(e) => setQtd(e.target.value)} />
+        </FormRow>
+        <FormRow label="Valor total da venda (R$)">
+          <Input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="120000" />
+        </FormRow>
+        <FormRow label="Comprador (opcional)">
+          <Input value={comprador} onChange={(e) => setComprador(e.target.value)} placeholder="Frigorífico Boi Forte" />
+        </FormRow>
+      </div>
+      {porCabeca > 0 && (
+        <p className="tnum mt-2 text-xs text-muted-foreground">≈ {fmtBRL(porCabeca)} por cabeça</p>
+      )}
+      {erro && (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">
+          {erro}
+        </p>
+      )}
+      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
+        Os animais saem do inventário, a venda entra no livro de movimentação e a receita é lançada
+        no Financeiro (recebida hoje).
+      </p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+        <Button onClick={salvar}>Registrar venda</Button>
+      </div>
+    </Dialog>
+  )
+}
+
+function ComprarAnimaisDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { lotes, comprarAnimais } = useStore()
+  const [categoria, setCategoria] = useState<Categoria>('garrote')
+  const [qtd, setQtd] = useState('')
+  const [pesoMedio, setPesoMedio] = useState('')
+  const [valor, setValor] = useState('')
+  const [vendedor, setVendedor] = useState('')
+  const [loteId, setLoteId] = useState(lotes[0]?.id ?? '')
+
+  const q = Number(qtd)
+  const v = Number(valor)
+  const porCabeca = q > 0 && v > 0 ? v / q : 0
+
+  const salvar = () => {
+    const p = Number(pesoMedio)
+    if (!q || q <= 0 || !p || p <= 0 || !v || v <= 0) return
+    comprarAnimais({
+      categoria,
+      qtd: q,
+      pesoMedio: p,
+      valorTotal: v,
+      vendedor: vendedor.trim() || undefined,
+      loteId,
+    })
+    toast(`Compra de ${q} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) registrada — despesa de ${fmtBRL(v)} no Financeiro.`)
+    setQtd(''); setPesoMedio(''); setValor(''); setVendedor('')
+    onClose()
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Comprar animais">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormRow label="Categoria">
+          <Select value={categoria} onChange={(e) => setCategoria(e.target.value as Categoria)}>
+            {Object.entries(CATEGORIA_LABEL).map(([va, l]) => (
+              <option key={va} value={va}>{l}</option>
+            ))}
+          </Select>
+        </FormRow>
+        <FormRow label="Quantidade">
+          <Input type="number" min="1" value={qtd} onChange={(e) => setQtd(e.target.value)} />
+        </FormRow>
+        <FormRow label="Peso médio (kg)">
+          <Input type="number" value={pesoMedio} onChange={(e) => setPesoMedio(e.target.value)} placeholder="350" />
+        </FormRow>
+        <FormRow label="Valor total da compra (R$)">
+          <Input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="90000" />
+        </FormRow>
+        <FormRow label="Lote de destino">
+          <Select value={loteId} onChange={(e) => setLoteId(e.target.value)}>
+            {lotes.map((l) => (
+              <option key={l.id} value={l.id}>{l.nome}</option>
+            ))}
+          </Select>
+        </FormRow>
+        <FormRow label="Vendedor (opcional)">
+          <Input value={vendedor} onChange={(e) => setVendedor(e.target.value)} placeholder="Leilão regional" />
+        </FormRow>
+      </div>
+      {porCabeca > 0 && (
+        <p className="tnum mt-2 text-xs text-muted-foreground">≈ {fmtBRL(porCabeca)} por cabeça</p>
+      )}
+      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
+        Os animais entram no inventário com brinco CP-xxx, a compra fica no livro de movimentação e a
+        despesa é lançada no Financeiro (paga hoje).
+      </p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+        <Button onClick={salvar}>Registrar compra</Button>
+      </div>
+    </Dialog>
   )
 }
 
