@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Scissors } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,7 +17,8 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts'
 import { apartacoesPorMes, intervaloPartosPorMatriz, metricasCria, previsaoApartacao } from '@/lib/metrics'
-import { fmtDate, fmtIdade, fmtKg, fmtKg1, fmtMesAno, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
+import { addDays } from '@/data/seed'
+import { fmtBRL, fmtDate, fmtIdade, fmtKg, fmtKg1, fmtMesAno, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
 import type { Parto } from '@/data/types'
 
@@ -27,6 +28,7 @@ export default function Cria() {
   const m = metricasCria(state)
   const [partoOpen, setPartoOpen] = useState(false)
   const [desmameOpen, setDesmameOpen] = useState(false)
+  const [apartarOpen, setApartarOpen] = useState(false)
   const [partoExcluir, setPartoExcluir] = useState<Parto | null>(null)
 
   const partosOrdenados = [...state.partos].sort((a, b) => b.data.localeCompare(a.data))
@@ -161,6 +163,7 @@ export default function Cria() {
                   const nascer = parto?.pesoNascer ?? 32
                   const aj205 = nascer + ((d.peso - nascer) / d.idadeDias) * 205
                   const lote = state.lotes.find((l) => l.id === d.loteDestinoId)
+                  const destinoNome = lote?.nome ?? (d.loteDestinoId === 'VENDA' ? 'Venda na apartação' : d.loteDestinoId)
                   return (
                     <TableRow key={d.id}>
                       <TableCell className="tnum">{fmtDate(d.data)}</TableCell>
@@ -168,7 +171,7 @@ export default function Cria() {
                       <TableCell className="tnum text-right">{fmtKg1(d.peso)}</TableCell>
                       <TableCell className="tnum text-right">{d.idadeDias}</TableCell>
                       <TableCell className="tnum text-right">{fmtNum1(aj205)} kg</TableCell>
-                      <TableCell className="text-muted-foreground">{lote?.nome ?? d.loteDestinoId}</TableCell>
+                      <TableCell className="text-muted-foreground">{destinoNome}</TableCell>
                     </TableRow>
                   )
                 })}
@@ -179,6 +182,11 @@ export default function Cria() {
         </TabsContent>
 
         <TabsContent value="apartacao">
+          <div className="mb-2 flex justify-end">
+            <Button onClick={() => setApartarOpen(true)}>
+              <Scissors className="h-3.5 w-3.5" /> Apartar bezerros
+            </Button>
+          </div>
           <div className="mb-3 rounded-lg border bg-card px-4 pt-3 pb-1">
             <div className="text-[13px] font-semibold">Bezerros a apartar por mês (previsão aos 8 meses)</div>
             <ResponsiveContainer width="100%" height={170}>
@@ -277,6 +285,7 @@ export default function Cria() {
 
       <NovoPartoDialog open={partoOpen} onClose={() => setPartoOpen(false)} />
       <NovoDesmameDialog open={desmameOpen} onClose={() => setDesmameOpen(false)} />
+      <ApartarDialog open={apartarOpen} onClose={() => setApartarOpen(false)} />
 
       <ConfirmDialog
         open={partoExcluir !== null}
@@ -298,6 +307,125 @@ export default function Cria() {
         O bezerro e a movimentação de nascimento também serão removidos do Rebanho.
       </ConfirmDialog>
     </div>
+  )
+}
+
+function ApartarDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const state = useStore()
+  const apartarBezerros = useStore((s) => s.apartarBezerros)
+  const [sexo, setSexo] = useState<'' | 'M' | 'F'>('')
+  const [qtd, setQtd] = useState('')
+  const [destino, setDestino] = useState<'recria' | 'venda'>(state.lotesRecria.length > 0 ? 'recria' : 'venda')
+  const [loteId, setLoteId] = useState(state.lotesRecria[0]?.id ?? '')
+  const [valor, setValor] = useState('')
+  const [comprador, setComprador] = useState('')
+  const [condicao, setCondicao] = useState<'vista' | 'prazo'>('vista')
+  const [vencimento, setVencimento] = useState(addDays(hojeISO(), 30))
+  const [erro, setErro] = useState('')
+
+  const previsao = previsaoApartacao(state).filter((p) => !sexo || p.animal.sexo === sexo)
+  const noPonto = previsao.filter((p) => p.diasRestantes <= 0).length
+  const q = Number(qtd)
+  const v = Number(valor)
+  const porCabeca = q > 0 && v > 0 ? v / q : 0
+
+  const salvar = () => {
+    if (destino === 'venda' && condicao === 'prazo' && vencimento <= hojeISO()) {
+      setErro('Para venda a prazo, o vencimento precisa ser uma data futura.')
+      return
+    }
+    const r = apartarBezerros({
+      qtd: q,
+      sexo: sexo || undefined,
+      destino,
+      loteId: destino === 'recria' ? loteId : undefined,
+      valorTotal: destino === 'venda' ? v : undefined,
+      comprador: comprador.trim() || undefined,
+      vencimento: destino === 'venda' && condicao === 'prazo' ? vencimento : undefined,
+    })
+    if (!r.ok) {
+      setErro(r.erro ?? 'Não foi possível apartar.')
+      return
+    }
+    toast(
+      destino === 'recria'
+        ? `${r.qtd} bezerro(s) apartado(s) para o lote de recria — desmames registrados.`
+        : condicao === 'prazo'
+          ? `${r.qtd} bezerro(s) apartado(s) e vendido(s) — ${fmtBRL(v)} a receber em ${fmtDate(vencimento)}.`
+          : `${r.qtd} bezerro(s) apartado(s) e vendido(s) — receita de ${fmtBRL(v)} no Financeiro.`,
+    )
+    setQtd(''); setValor(''); setComprador(''); setErro('')
+    onClose()
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} title="Apartar bezerros">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormRow label="Sexo">
+          <Select value={sexo} onChange={(e) => setSexo(e.target.value as '' | 'M' | 'F')}>
+            <option value="">Machos e fêmeas</option>
+            <option value="M">Só machos</option>
+            <option value="F">Só fêmeas</option>
+          </Select>
+        </FormRow>
+        <FormRow label={`Quantidade (no ponto: ${fmtNum(noPonto)} · ao pé: ${fmtNum(previsao.length)})`}>
+          <Input type="number" min="1" value={qtd} onChange={(e) => setQtd(e.target.value)} placeholder={String(noPonto || previsao.length)} />
+        </FormRow>
+        <FormRow label="Destino da apartação">
+          <Select value={destino} onChange={(e) => setDestino(e.target.value as 'recria' | 'venda')}>
+            {state.lotesRecria.length > 0 && <option value="recria">Transferir para lote de recria</option>}
+            <option value="venda">Vender na apartação</option>
+          </Select>
+        </FormRow>
+        {destino === 'recria' ? (
+          <FormRow label="Lote de recria">
+            <Select value={loteId} onChange={(e) => setLoteId(e.target.value)}>
+              {state.lotesRecria.map((l) => (
+                <option key={l.id} value={l.id}>{l.nome}</option>
+              ))}
+            </Select>
+          </FormRow>
+        ) : (
+          <>
+            <FormRow label="Valor total da venda (R$)">
+              <Input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} placeholder="45000" />
+            </FormRow>
+            <FormRow label="Comprador (opcional)">
+              <Input value={comprador} onChange={(e) => setComprador(e.target.value)} placeholder="Recria Forte Ltda" />
+            </FormRow>
+            <FormRow label="Condição de pagamento">
+              <Select value={condicao} onChange={(e) => setCondicao(e.target.value as 'vista' | 'prazo')}>
+                <option value="vista">À vista (recebido hoje)</option>
+                <option value="prazo">A prazo (a receber)</option>
+              </Select>
+            </FormRow>
+            {condicao === 'prazo' && (
+              <FormRow label="Vencimento">
+                <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+              </FormRow>
+            )}
+          </>
+        )}
+      </div>
+      {porCabeca > 0 && destino === 'venda' && (
+        <p className="tnum mt-2 text-xs text-muted-foreground">≈ {fmtBRL(porCabeca)} por cabeça</p>
+      )}
+      {erro && (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">
+          {erro}
+        </p>
+      )}
+      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
+        Aparta sempre os mais velhos primeiro. Cada bezerro ganha registro de desmame com o peso atual;{' '}
+        {destino === 'recria'
+          ? 'os animais mudam para o lote de recria escolhido.'
+          : 'a venda entra no livro e a receita no Financeiro.'}
+      </p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+        <Button onClick={salvar}>Apartar</Button>
+      </div>
+    </Dialog>
   )
 }
 

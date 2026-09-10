@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { addDays, buildSeed } from '@/data/seed'
+import { addDays, buildSeed, diffDays } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
 import { CATEGORIA_LABEL } from '@/data/types'
 import type {
@@ -63,6 +63,17 @@ interface Actions {
   addParto: (p: Omit<Parto, 'id'>) => void
   removeParto: (id: string) => { ok: boolean; erro?: string }
   addDesmame: (d: Omit<Desmame, 'id'>) => { ok: boolean; erro?: string }
+  /** Apartação em lote: desmama os bezerros mais velhos ao pé — transferindo para um
+   *  lote de recria ou vendendo direto (receita no Financeiro, à vista ou a prazo). */
+  apartarBezerros: (p: {
+    qtd: number
+    sexo?: 'M' | 'F'
+    destino: 'recria' | 'venda'
+    loteId?: string
+    valorTotal?: number
+    comprador?: string
+    vencimento?: string
+  }) => { ok: boolean; erro?: string; qtd?: number }
 
   // Recria
   addPesagemLote: (loteId: string, pes: Pesagem) => void
@@ -401,6 +412,102 @@ export const useStore = create<Store>()(
           ],
         })
         return { ok: true }
+      },
+
+      apartarBezerros: ({ qtd, sexo, destino, loteId, valorTotal, comprador, vencimento }) => {
+        const s = get()
+        const hoje = hojeISO()
+        const desmamadosSet = new Set(s.desmames.map((d) => d.bezerroBrinco))
+        let candidatos = s.animais.filter(
+          (a) =>
+            a.status === 'ativo' &&
+            (a.categoria === 'bezerro' || a.categoria === 'bezerra') &&
+            !desmamadosSet.has(a.brinco),
+        )
+        if (sexo) candidatos = candidatos.filter((a) => a.sexo === sexo)
+        candidatos.sort((a, b) => a.nascimento.localeCompare(b.nascimento)) // mais velhos primeiro
+        if (!qtd || qtd <= 0) return { ok: false, erro: 'Informe a quantidade a apartar.' }
+        if (candidatos.length < qtd) {
+          return { ok: false, erro: `Só há ${candidatos.length} bezerro(s) ao pé nesse recorte.` }
+        }
+        const loteNome = loteId ? s.lotes.find((l) => l.id === loteId)?.nome ?? loteId : undefined
+        if (destino === 'recria' && !loteNome) {
+          return { ok: false, erro: 'Escolha o lote de recria de destino.' }
+        }
+        if (destino === 'venda' && !(valorTotal && valorTotal > 0)) {
+          return { ok: false, erro: 'Informe o valor total da venda na apartação.' }
+        }
+        const alvo = candidatos.slice(0, qtd)
+        const ids = new Set(alvo.map((a) => a.id))
+        const novosDesmames: Desmame[] = alvo.map((a) => ({
+          id: nid('DS'),
+          data: hoje,
+          bezerroBrinco: a.brinco,
+          peso: a.pesoAtual,
+          idadeDias: diffDays(a.nascimento, hoje),
+          loteDestinoId: destino === 'recria' ? loteId! : 'VENDA',
+        }))
+        const brincoFaixa = qtd === 1 ? alvo[0].brinco : `${alvo[0].brinco} … ${alvo[qtd - 1].brinco}`
+        const movs: Movimentacao[] = [
+          {
+            id: nid('MV'),
+            data: hoje,
+            tipo: 'desmame' as const,
+            brinco: brincoFaixa,
+            categoria: sexo === 'F' ? ('bezerra' as const) : ('bezerro' as const),
+            quantidade: qtd,
+            origem: 'Rebanho de cria',
+            destino: destino === 'recria' ? loteNome : 'Venda na apartação',
+          },
+        ]
+        if (destino === 'venda') {
+          movs.push({
+            id: nid('MV'),
+            data: hoje,
+            tipo: 'venda' as const,
+            brinco: brincoFaixa,
+            categoria: sexo === 'F' ? ('bezerra' as const) : ('bezerro' as const),
+            quantidade: qtd,
+            origem: 'Apartação',
+            obs: comprador ? `Comprador: ${comprador}` : 'Venda na apartação',
+          })
+        }
+        set({
+          desmames: [...s.desmames, ...novosDesmames],
+          animais: s.animais.map((a) => {
+            if (!ids.has(a.id)) return a
+            if (destino === 'recria') {
+              return {
+                ...a,
+                loteId: loteId!,
+                pesagens: [...a.pesagens, { data: hoje, peso: a.pesoAtual }],
+              }
+            }
+            return { ...a, status: 'vendido' as const }
+          }),
+          movimentacoes: [...s.movimentacoes, ...movs],
+          lancamentos:
+            destino === 'venda'
+              ? [
+                  ...s.lancamentos,
+                  {
+                    id: nid('LC'),
+                    tipo: 'receita' as const,
+                    categoria: 'Venda de animais',
+                    descricao: `Apartação: venda de ${qtd} bezerro(s)${comprador ? ` — ${comprador}` : ''}`,
+                    valor: valorTotal!,
+                    vencimento: vencimento ?? hoje,
+                    pagamento: vencimento ? undefined : hoje,
+                    origem: 'venda_animal' as const,
+                  },
+                ]
+              : s.lancamentos,
+          fazenda:
+            destino === 'venda'
+              ? { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - qtd }
+              : s.fazenda,
+        })
+        return { ok: true, qtd }
       },
 
       addPesagemLote: (loteId, pes) =>

@@ -18,6 +18,7 @@ const Financeiro = lazy(() => import('@/pages/Financeiro'))
 const Maquinas = lazy(() => import('@/pages/Maquinas'))
 const OrdensServico = lazy(() => import('@/pages/OrdensServico'))
 const Leite = lazy(() => import('@/pages/Leite'))
+const Relatorios = lazy(() => import('@/pages/Relatorios'))
 
 const router = createHashRouter([
   {
@@ -36,6 +37,7 @@ const router = createHashRouter([
       { path: '/financeiro', element: <Financeiro /> },
       { path: '/maquinas', element: <Maquinas /> },
       { path: '/os', element: <OrdensServico /> },
+      { path: '/relatorios', element: <Relatorios /> },
     ],
   },
 ])

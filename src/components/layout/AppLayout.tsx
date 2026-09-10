@@ -16,6 +16,7 @@ import {
   Milk,
   Menu,
   Stethoscope,
+  FileText,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -40,6 +41,7 @@ const NAV = [
   { to: '/financeiro', label: 'Financeiro', icon: Wallet },
   { to: '/maquinas', label: 'Máquinas', icon: Tractor },
   { to: '/os', label: 'Ordens de serviço', icon: ClipboardList },
+  { to: '/relatorios', label: 'Relatórios', icon: FileText },
 ]
 
 /** Conteúdo da sidebar — usado no painel fixo (desktop) e no drawer (mobile) */
@@ -156,7 +158,7 @@ export function AppLayout() {
   return (
     <div className="flex min-h-screen">
       {/* Sidebar fixa — só desktop */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-52 flex-col border-r bg-white lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-52 flex-col border-r bg-white lg:flex print:hidden">
         <SidebarContent />
       </aside>
 
@@ -177,8 +179,8 @@ export function AppLayout() {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col lg:ml-52">
-        <header className="sticky top-0 z-30 flex h-11 items-center gap-2 border-b bg-white/95 px-3 backdrop-blur lg:px-4">
+      <div className="flex min-w-0 flex-1 flex-col lg:ml-52 print:ml-0">
+        <header className="sticky top-0 z-30 flex h-11 items-center gap-2 border-b bg-white/95 px-3 backdrop-blur lg:px-4 print:hidden">
           <button
             onClick={() => setMenuOpen(true)}
             aria-label="Abrir menu"
@@ -220,7 +222,7 @@ export function AppLayout() {
             <span className="hidden md:inline">Restaurar dados da demo</span>
           </button>
         </header>
-        <main className="min-w-0 flex-1 p-3 lg:p-4">
+        <main className="min-w-0 flex-1 p-3 lg:p-4 print:p-0">
           <Suspense
             fallback={
               <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">

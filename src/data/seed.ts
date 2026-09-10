@@ -836,7 +836,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
   ciclo_completo: {
     nome: 'Ciclo completo',
     descricao: 'Nelore, 800 ha, 1.200 cabeças',
-    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/estoque', '/compras', '/financeiro'],
+    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/estoque', '/compras', '/financeiro', '/relatorios'],
     boasVindas:
       'Operação de ciclo completo: da cria à terminação, com estoque, compras e custo por arroba amarrados de ponta a ponta.',
     destaques: [
@@ -851,7 +851,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     descricao: 'Cria pura: partos, IATF, IP e apartação',
     boasVindas:
       'Pequena propriedade de cria com tudo que importa na produção de bezerros — sem módulos que você não usa.',
-    modulos: ['/', '/rebanho', '/cria', '/reproducao', '/sanitario', '/estoque'],
+    modulos: ['/', '/rebanho', '/cria', '/reproducao', '/sanitario', '/estoque', '/relatorios'],
     destaques: [
       { rotulo: 'Partos e desmames da safra', link: '/cria' },
       { rotulo: 'Previsão de apartação aos 8 meses', link: '/cria' },
@@ -865,7 +865,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     descricao: 'Completo: financeiro, máquinas, OS e leite',
     boasVindas:
       'Fazenda mista de corte e leite com a gestão completa: rebanho, reprodução, financeiro, frota de máquinas e ordens de serviço.',
-    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/leite', '/estoque', '/compras', '/financeiro', '/maquinas', '/os'],
+    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/leite', '/estoque', '/compras', '/financeiro', '/maquinas', '/os', '/relatorios'],
     destaques: [
       { rotulo: 'Fluxo de caixa e contas a pagar', link: '/financeiro' },
       { rotulo: 'Produção de leite diária', link: '/leite' },

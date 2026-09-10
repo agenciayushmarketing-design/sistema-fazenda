@@ -53,3 +53,12 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+@media print {
+  body {
+    background: white;
+  }
+  @page {
+    margin: 14mm;
+  }
+}
