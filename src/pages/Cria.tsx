@@ -16,7 +16,7 @@ import { toast } from '@/components/ui/toast'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts'
-import { apartacoesPorMes, intervaloPartosPorMatriz, metricasCria, previsaoApartacao } from '@/lib/metrics'
+import { apartacoesPorMes, intervaloPartosPorMatriz, metricasCria, previsaoApartacao, DIAS_POR_MES } from '@/lib/metrics'
 import { addDays } from '@/data/seed'
 import { fmtBRL, fmtDate, fmtIdade, fmtKg, fmtKg1, fmtMesAno, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
@@ -25,6 +25,7 @@ import type { Parto } from '@/data/types'
 export default function Cria() {
   const state = useStore()
   const removeParto = useStore((s) => s.removeParto)
+  const updateConfig = useStore((s) => s.updateConfig)
   const m = metricasCria(state)
   const [partoOpen, setPartoOpen] = useState(false)
   const [desmameOpen, setDesmameOpen] = useState(false)
@@ -65,9 +66,10 @@ export default function Cria() {
         <StatCard label="Peso desmame aj. 205d" value={fmtKg1(m.pesoDesmame205)} detail={`${m.desmamados} desmamados`} />
         <StatCard
           label="Intervalo entre partos"
-          value={m.intervaloPartosDias > 0 ? `${m.intervaloPartosDias} dias` : '—'}
-          detail={`calculado de ${m.matrizesComIP} matrizes`}
-          tone={m.intervaloPartosDias > 420 ? 'warning' : undefined}
+          value={m.intervaloPartosDias > 0 ? `${fmtNum1(m.intervaloPartosMeses)} meses` : '—'}
+          detail={`${m.intervaloPartosDias} dias · média de ${m.matrizesComIP} matrizes`}
+          tone={m.intervaloPartosMeses > state.config.toleranciaIPMeses ? 'critical' : undefined}
+          hint={`Tempo médio entre um parto e o seguinte da mesma matriz. Acima de ${state.config.toleranciaIPMeses} meses (tolerância configurável), a vaca é marcada para descarte.`}
         />
         <StatCard label="Kg bezerro / matriz" value={fmtKg1(m.kgBezerroPorMatriz)} detail="desmamado por exposta" />
         <StatCard label="Taxa de desmame" value={fmtPct(m.taxaDesmamePct)} detail="projetada (vivos/expostas)" />
@@ -246,6 +248,27 @@ export default function Cria() {
         </TabsContent>
 
         <TabsContent value="ip">
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border bg-card px-3 py-2">
+            <span className="text-xs font-medium text-muted-foreground">
+              Tolerância de IP (meses) — acima disso a matriz fica em vermelho para descarte:
+            </span>
+            <Input
+              type="number"
+              min="10"
+              max="36"
+              value={state.config.toleranciaIPMeses}
+              onChange={(e) => {
+                const v = Number(e.target.value)
+                if (v >= 10 && v <= 36) updateConfig({ toleranciaIPMeses: v })
+              }}
+              className="w-20"
+              aria-label="Tolerância de IP em meses"
+            />
+            <span className="tnum text-xs text-muted-foreground">
+              {fmtNum(ips.filter((ip) => ip.ipDias / DIAS_POR_MES > state.config.toleranciaIPMeses).length)}{' '}
+              matriz(es) acima do limite
+            </span>
+          </div>
           <div className="rounded-lg border bg-card">
             <Table>
               <TableHeader>
@@ -253,31 +276,41 @@ export default function Cria() {
                   <TableHead>Matriz</TableHead>
                   <TableHead>Parto anterior</TableHead>
                   <TableHead>Parto atual</TableHead>
+                  <TableHead className="text-right">IP (meses)</TableHead>
                   <TableHead className="text-right">IP (dias)</TableHead>
                   <TableHead>Avaliação</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ipsPag.pageItems.map((ip) => (
-                  <TableRow key={ip.matrizBrinco}>
-                    <TableCell className="font-medium">{ip.matrizBrinco}</TableCell>
-                    <TableCell className="tnum">{fmtDate(ip.partoAnterior)}</TableCell>
-                    <TableCell className="tnum">{fmtDate(ip.partoAtual)}</TableCell>
-                    <TableCell className="tnum text-right font-semibold">{ip.ipDias}</TableCell>
-                    <TableCell>
-                      <Badge variant={ip.ipDias <= 395 ? 'good' : ip.ipDias <= 420 ? 'warning' : 'critical'}>
-                        {ip.ipDias <= 395 ? 'Boa' : ip.ipDias <= 420 ? 'Atenção' : 'Descarte sugerido'}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {ipsPag.pageItems.map((ip) => {
+                  const meses = ip.ipDias / DIAS_POR_MES
+                  const estourou = meses > state.config.toleranciaIPMeses
+                  const atencao = !estourou && meses > state.config.toleranciaIPMeses - 2
+                  return (
+                    <TableRow key={ip.matrizBrinco} className={estourou ? 'bg-red-50/60 hover:bg-red-50' : ''}>
+                      <TableCell className={`font-medium ${estourou ? 'text-red-700' : ''}`}>{ip.matrizBrinco}</TableCell>
+                      <TableCell className="tnum">{fmtDate(ip.partoAnterior)}</TableCell>
+                      <TableCell className="tnum">{fmtDate(ip.partoAtual)}</TableCell>
+                      <TableCell className={`tnum text-right font-semibold ${estourou ? 'text-red-700' : ''}`}>
+                        {fmtNum1(meses)}
+                      </TableCell>
+                      <TableCell className="tnum text-right text-muted-foreground">{ip.ipDias}</TableCell>
+                      <TableCell>
+                        <Badge variant={estourou ? 'critical' : atencao ? 'warning' : 'good'}>
+                          {estourou ? 'Descarte' : atencao ? 'Atenção' : 'Boa'}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
             <TablePagination {...ipsPag} />
             <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
-              IP = intervalo entre o parto da safra anterior e o da safra atual, matriz a matriz.
-              Referência: até 395 dias boa; acima de 420 candidata a descarte. Média do rebanho:{' '}
-              {m.intervaloPartosDias} dias.
+              IP = meses entre o parto da safra anterior e o da safra atual, matriz a matriz. Tolerância
+              atual: {state.config.toleranciaIPMeses} meses (configurável acima). Média do rebanho:{' '}
+              {fmtNum1(m.intervaloPartosMeses)} meses ({m.intervaloPartosDias} dias). As matrizes em
+              vermelho também aparecem na lista de descarte, em Reprodução.
             </div>
           </div>
         </TabsContent>

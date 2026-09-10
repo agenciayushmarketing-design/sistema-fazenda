@@ -6,6 +6,7 @@ import { CATEGORIA_LABEL } from '@/data/types'
 import type {
   Animal,
   Categoria,
+  ConfigFazenda,
   Desmame,
   DiagnosticoGestacao,
   Lancamento,
@@ -24,6 +25,7 @@ import type {
   RondaSanitaria,
   SeedData,
   StatusOS,
+  TouroRepasse,
 } from '@/data/types'
 
 const STORAGE_KEY = 'fazenda-santa-helena-demo'
@@ -31,6 +33,7 @@ const STORAGE_KEY = 'fazenda-santa-helena-demo'
 interface Actions {
   resetDemo: () => void
   setPerfil: (perfil: PerfilDemo) => void
+  updateConfig: (patch: Partial<ConfigFazenda>) => void
 
   // Rebanho
   addAnimal: (a: Animal, mov?: Omit<Movimentacao, 'id'>) => void
@@ -82,6 +85,9 @@ interface Actions {
   addProtocolo: (p: Omit<ProtocoloIATF, 'id'>) => { ok: boolean; erro?: string }
   addDiagnostico: (d: Omit<DiagnosticoGestacao, 'id'>) => void
   updateDiagnostico: (id: string, patch: Partial<DiagnosticoGestacao>) => void
+  addTouroRepasse: (t: TouroRepasse) => { ok: boolean; erro?: string }
+  updateTouroRepasse: (brinco: string, patch: Partial<TouroRepasse>) => void
+  removeTouroRepasse: (brinco: string) => void
 
   // Estoque
   addSaidaEstoque: (m: Omit<MovEstoque, 'id' | 'tipo'>) => { ok: boolean; erro?: string }
@@ -145,6 +151,9 @@ export const useStore = create<Store>()(
         localStorage.removeItem(STORAGE_KEY)
         set(buildSeed(perfil), false)
       },
+
+      updateConfig: (patch) =>
+        set((s) => ({ config: { ...s.config, ...patch } })),
 
       addAnimal: (a, movi) =>
         set((s) => ({
@@ -554,6 +563,24 @@ export const useStore = create<Store>()(
           diagnosticos: s.diagnosticos.map((d) => (d.id === id ? { ...d, ...patch } : d)),
         })),
 
+      addTouroRepasse: (t) => {
+        const s = get()
+        if (!t.brinco.trim() || !t.nome.trim()) return { ok: false, erro: 'Informe brinco e nome do reprodutor.' }
+        if (s.tourosRepasse.some((x) => x.brinco === t.brinco)) {
+          return { ok: false, erro: `Já existe um reprodutor com o brinco ${t.brinco}.` }
+        }
+        set({ tourosRepasse: [...s.tourosRepasse, t] })
+        return { ok: true }
+      },
+
+      updateTouroRepasse: (brinco, patch) =>
+        set((s) => ({
+          tourosRepasse: s.tourosRepasse.map((t) => (t.brinco === brinco ? { ...t, ...patch } : t)),
+        })),
+
+      removeTouroRepasse: (brinco) =>
+        set((s) => ({ tourosRepasse: s.tourosRepasse.filter((t) => t.brinco !== brinco) })),
+
       addSaidaEstoque: (m) => {
         const s = get()
         const item = s.estoque.find((i) => i.id === m.itemId)
@@ -858,7 +885,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 4, // v4: módulo sanitário (manejos + rondas)
+      version: 5, // v5: config da fazenda (tolerância de IP + dias vazia p/ descarte)
       // dados persistidos de versões anteriores não têm os novos módulos/perfis → re-semeia
       migrate: () => buildSeed('ciclo_completo') as unknown as Store,
     },

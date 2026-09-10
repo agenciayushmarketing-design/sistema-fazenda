@@ -186,6 +186,49 @@ export function ocorrenciasAbertas(data: Pick<SeedData, 'rondas'>) {
   )
 }
 
+// ---- Descarte (vazias + IP estourado) ----
+export const DIAS_POR_MES = 30.44
+
+/** Vazias da estação atual, com dias desde o diagnóstico e a marcação de descarte */
+export function listaVazias(data: Pick<SeedData, 'diagnosticos' | 'estacoes' | 'animais' | 'config'>) {
+  const hoje = hojeISO()
+  const estacao = data.estacoes.find((e) => e.status === 'em_andamento')
+  const porBrinco = new Map(ativos(data.animais).map((a) => [a.brinco, a]))
+  return data.diagnosticos
+    .filter((d) => d.resultado === 'vazia' && d.estacaoId === estacao?.id)
+    .map((d) => {
+      const diasVazia = diffDays(d.data, hoje)
+      return {
+        matrizBrinco: d.matrizBrinco,
+        animal: porBrinco.get(d.matrizBrinco),
+        dataDG: d.data,
+        diasVazia,
+        descarte: diasVazia >= data.config.diasVaziaDescarte,
+      }
+    })
+    .sort((a, b) => b.diasVazia - a.diasVazia)
+}
+
+/** Matrizes com IP acima da tolerância configurada (em meses) */
+export function matrizesIPEstourado(
+  data: Pick<SeedData, 'partos' | 'partosAnteriores' | 'animais' | 'config'>,
+) {
+  const porBrinco = new Map(ativos(data.animais).map((a) => [a.brinco, a]))
+  return intervaloPartosPorMatriz(data)
+    .map((ip) => ({ ...ip, ipMeses: ip.ipDias / DIAS_POR_MES, animal: porBrinco.get(ip.matrizBrinco) }))
+    .filter((ip) => ip.ipMeses > data.config.toleranciaIPMeses)
+}
+
+/** União (sem duplicar matriz) dos dois critérios de descarte — alimenta o alerta */
+export function candidatasDescarte(
+  data: Pick<SeedData, 'diagnosticos' | 'estacoes' | 'animais' | 'config' | 'partos' | 'partosAnteriores'>,
+) {
+  const brincos = new Set<string>()
+  for (const v of listaVazias(data)) if (v.descarte) brincos.add(v.matrizBrinco)
+  for (const ip of matrizesIPEstourado(data)) brincos.add(ip.matrizBrinco)
+  return brincos
+}
+
 // ---- Cria ----
 
 /** IP por matriz: parto da safra atual × parto da safra anterior */
@@ -237,6 +280,7 @@ export function metricasCria(
     pesoDesmame205,
     kgBezerroPorMatriz: expostas > 0 ? kgDesmamado / expostas : 0,
     intervaloPartosDias,
+    intervaloPartosMeses: intervaloPartosDias / DIAS_POR_MES,
     matrizesComIP: ips.length,
   }
 }
@@ -364,7 +408,7 @@ export function metricasLeite(data: Pick<SeedData, 'producaoLeite' | 'leite'>) {
 
 // ---- Alertas ----
 export interface Alerta {
-  tipo: 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario'
+  tipo: 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario' | 'descarte'
   severidade: 'warning' | 'critical'
   titulo: string
   detalhe: string
@@ -430,6 +474,16 @@ export function alertas(data: SeedData): Alerta[] {
         link: '/os',
       })
     }
+  }
+  const descarte = candidatasDescarte(data)
+  if (descarte.size > 0) {
+    out.push({
+      tipo: 'descarte',
+      severidade: 'warning',
+      titulo: `${descarte.size} matriz(es) candidatas a descarte`,
+      detalhe: `Vazias há ${data.config.diasVaziaDescarte}+ dias ou IP acima de ${data.config.toleranciaIPMeses} meses`,
+      link: '/reproducao',
+    })
   }
   const partosProximos = partosPrevistos(data).filter((p) => p.diasRestantes <= 30)
   if (partosProximos.length > 0) {

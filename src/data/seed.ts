@@ -14,6 +14,7 @@ import type {
   Animal,
   Categoria,
   CentroCusto,
+  ConfigFazenda,
   Desmame,
   DiagnosticoGestacao,
   EstacaoMonta,
@@ -79,6 +80,7 @@ interface DesmameRoundParams {
 interface PerfilParams {
   nomePerfil: string
   fazenda: { nome: string; areaHa: number }
+  config: ConfigFazenda
   seedRandom: number
   inventario: {
     vaca: number
@@ -208,6 +210,7 @@ interface PerfilParams {
 const PERFIL_CICLO: PerfilParams = {
   nomePerfil: 'Ciclo completo',
   fazenda: { nome: 'Fazenda Santa Helena', areaHa: 800 },
+  config: { toleranciaIPMeses: 18, diasVaziaDescarte: 45 },
   seedRandom: 20260814,
   inventario: { vaca: 420, vacaLeite: 0, touro: 15, novilha_24: 85, boi_terminacao: 88 },
   pastos: [
@@ -237,7 +240,7 @@ const PERFIL_CICLO: PerfilParams = {
     pesoNascerMedio: 32,
     matrizesComPartoAnterior: 0.85,
     ipMinDias: 345,
-    ipMaxDias: 430,
+    ipMaxDias: 570, // até ~18,7 meses — as piores estouram a tolerância de 18
   },
   desmameRounds: [
     { dia: -75, qtd: 90, sexo: 'M', pesoMedio: 205, loteId: 'R1' },
@@ -414,6 +417,7 @@ const PERFIL_CICLO: PerfilParams = {
 const PERFIL_CRIA: PerfilParams = {
   nomePerfil: 'Cria — 150 matrizes',
   fazenda: { nome: 'Sítio Boa Esperança', areaHa: 180 },
+  config: { toleranciaIPMeses: 18, diasVaziaDescarte: 45 },
   seedRandom: 20260901,
   inventario: { vaca: 150, vacaLeite: 0, touro: 4, novilha_24: 14, boi_terminacao: 0 },
   novilhasJovens: { qtd: 18, loteId: 'L-NOV', prefixo: 'NJ' },
@@ -440,7 +444,7 @@ const PERFIL_CRIA: PerfilParams = {
     pesoNascerMedio: 31,
     matrizesComPartoAnterior: 0.82,
     ipMinDias: 350,
-    ipMaxDias: 435,
+    ipMaxDias: 580, // até ~19 meses — as piores estouram a tolerância de 18
   },
   desmameRounds: [], // apartação prevista aos 8 meses — nenhum bezerro apartado ainda
   recria: [],
@@ -557,6 +561,7 @@ const PERFIL_CRIA: PerfilParams = {
 const PERFIL_CORTE_LEITE: PerfilParams = {
   nomePerfil: 'Corte & Leite',
   fazenda: { nome: 'Fazenda Dois Córregos', areaHa: 420 },
+  config: { toleranciaIPMeses: 18, diasVaziaDescarte: 45 },
   seedRandom: 20260922,
   inventario: { vaca: 150, vacaLeite: 60, touro: 8, novilha_24: 25, boi_terminacao: 40 },
   pastos: [
@@ -589,7 +594,7 @@ const PERFIL_CORTE_LEITE: PerfilParams = {
     pesoNascerMedio: 32,
     matrizesComPartoAnterior: 0.8,
     ipMinDias: 350,
-    ipMaxDias: 440,
+    ipMaxDias: 560, // até ~18,4 meses — as piores estouram a tolerância de 18
   },
   desmameRounds: [
     { dia: -65, qtd: 32, sexo: 'M', pesoMedio: 198, loteId: 'R1' },
@@ -1418,6 +1423,7 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
         matrizBrinco: brinco,
         resultado: 'prenha',
         origemPrenhez: 'IATF',
+        protocoloId: proto.id,
         dataConcepcao: proto.dataIA,
         dppEstimado: addDays(proto.dataIA, GESTACAO_DIAS),
         estacaoId: 'EM-ATUAL',
@@ -1435,7 +1441,8 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
         estacaoId: 'EM-ATUAL',
       })
     } else if (i < R.matrizesExpostas - R.dgPendentes) {
-      dgPush({ data: dgFinal, matrizBrinco: brinco, resultado: 'vazia', estacaoId: 'EM-ATUAL' })
+      // metade das vazias já foi diagnosticada no DG30 — base do aviso de descarte por dias vazia
+      dgPush({ data: i % 2 === 0 ? dg30 : dgFinal, matrizBrinco: brinco, resultado: 'vazia', estacaoId: 'EM-ATUAL' })
     } else {
       dgPush({ data: dgFinal, matrizBrinco: brinco, resultado: 'pendente', estacaoId: 'EM-ATUAL' })
     }
@@ -1705,6 +1712,7 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
   return {
     perfil,
     geradoEm: today,
+    config: { ...P.config },
     fazenda: {
       nome: P.fazenda.nome,
       areaHa: P.fazenda.areaHa,

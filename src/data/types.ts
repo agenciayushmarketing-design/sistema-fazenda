@@ -156,6 +156,7 @@ export interface DiagnosticoGestacao {
   matrizBrinco: string
   resultado: 'prenha' | 'vazia' | 'pendente'
   origemPrenhez?: 'IATF' | 'touro'
+  protocoloId?: string // prenhez de IATF: qual protocolo emprenhou
   dataConcepcao?: string
   dppEstimado?: string
   estacaoId: string
@@ -344,10 +345,19 @@ export interface ConfigLeite {
   mediaLitrosVacaDia: number
 }
 
+/** Parâmetros operacionais que o produtor ajusta na tela (persistidos) */
+export interface ConfigFazenda {
+  /** IP acima disso (em meses) marca a matriz em vermelho para descarte */
+  toleranciaIPMeses: number
+  /** vazia há mais dias que isso vira aviso de venda */
+  diasVaziaDescarte: number
+}
+
 // ---- Dataset completo ----
 export interface SeedData {
   perfil: PerfilDemo
   geradoEm: string
+  config: ConfigFazenda
   fazenda: {
     nome: string
     areaHa: number

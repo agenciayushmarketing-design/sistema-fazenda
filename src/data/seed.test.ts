@@ -235,6 +235,30 @@ describe.each(PERFIS_LISTA)('coerência do seed — perfil %s', (perfil) => {
     }
   })
 
+  it('config da fazenda existe com tolerâncias positivas', () => {
+    expect(seed.config.toleranciaIPMeses).toBeGreaterThan(0)
+    expect(seed.config.diasVaziaDescarte).toBeGreaterThan(0)
+    // com a tolerância padrão, existe pelo menos uma matriz com IP estourado (demo do descarte)
+    const estouradas = seed.partosAnteriores.filter((ant) => {
+      const atual = seed.partos.find((p) => p.matrizBrinco === ant.matrizBrinco)
+      return atual && diffDays(ant.data, atual.data) / 30.44 > seed.config.toleranciaIPMeses
+    })
+    expect(estouradas.length).toBeGreaterThan(0)
+  })
+
+  it('prenhezes de IATF apontam para um protocolo existente e há vazias no DG30', () => {
+    const protocolos = new Set(seed.protocolosIATF.map((p) => p.id))
+    for (const d of seed.diagnosticos) {
+      if (d.resultado === 'prenha' && d.origemPrenhez === 'IATF') {
+        expect(d.protocoloId, `prenha IATF ${d.matrizBrinco} sem protocolo`).toBeDefined()
+        expect(protocolos.has(d.protocoloId!)).toBe(true)
+      }
+    }
+    // vazias divididas entre DG30 e DG final — base do aviso de descarte por dias vazia
+    const datasVazias = new Set(seed.diagnosticos.filter((d) => d.resultado === 'vazia').map((d) => d.data))
+    expect(datasVazias.size).toBeGreaterThanOrEqual(2)
+  })
+
   it('geração é determinística para a mesma data', () => {
     const outra = buildSeed(perfil, HOJE)
     expect(JSON.stringify(outra)).toBe(JSON.stringify(seed))
