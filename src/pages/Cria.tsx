@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Plus, Trash2, Scissors } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
@@ -31,6 +32,10 @@ export default function Cria() {
   const [desmameOpen, setDesmameOpen] = useState(false)
   const [apartarOpen, setApartarOpen] = useState(false)
   const [partoExcluir, setPartoExcluir] = useState<Parto | null>(null)
+  const [searchParams] = useSearchParams()
+  const tabInicial = ['partos', 'desmames', 'apartacao', 'ip'].includes(searchParams.get('tab') ?? '')
+    ? searchParams.get('tab')!
+    : 'partos'
 
   const partosOrdenados = [...state.partos].sort((a, b) => b.data.localeCompare(a.data))
   const desmamesOrdenados = [...state.desmames].sort((a, b) => b.data.localeCompare(a.data))
@@ -93,7 +98,7 @@ export default function Cria() {
         ))}
       </div>
 
-      <Tabs defaultValue="partos">
+      <Tabs defaultValue={tabInicial}>
         <TabsList>
           <TabsTrigger value="partos">Partos ({fmtNum(state.partos.length)})</TabsTrigger>
           <TabsTrigger value="desmames">Desmames ({fmtNum(state.desmames.length)})</TabsTrigger>
@@ -310,7 +315,11 @@ export default function Cria() {
               IP = meses entre o parto da safra anterior e o da safra atual, matriz a matriz. Tolerância
               atual: {state.config.toleranciaIPMeses} meses (configurável acima). Média do rebanho:{' '}
               {fmtNum1(m.intervaloPartosMeses)} meses ({m.intervaloPartosDias} dias). As matrizes em
-              vermelho também aparecem na lista de descarte, em Reprodução.
+              vermelho também aparecem na{' '}
+              <Link to="/reproducao?tab=descarte" className="font-medium text-primary hover:underline">
+                lista de descarte
+              </Link>
+              , em Reprodução.
             </div>
           </div>
         </TabsContent>

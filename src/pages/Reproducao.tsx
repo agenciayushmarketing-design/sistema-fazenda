@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from 'recharts'
@@ -37,6 +37,12 @@ export default function Reproducao() {
   const [touroEdit, setTouroEdit] = useState<TouroRepasse | null>(null)
   const [touroExcluir, setTouroExcluir] = useState<TouroRepasse | null>(null)
   const [venderMatriz, setVenderMatriz] = useState<Animal | null>(null)
+  const [searchParams] = useSearchParams()
+  const tabInicial = ['protocolos', 'dg', 'pendentes', 'partos', 'reprodutores', 'descarte'].includes(
+    searchParams.get('tab') ?? '',
+  )
+    ? searchParams.get('tab')!
+    : 'protocolos'
 
   const dgsPendentes = state.diagnosticos.filter((d) => d.resultado === 'pendente')
   const dgsFeitos = state.diagnosticos.filter((d) => d.resultado !== 'pendente')
@@ -132,7 +138,7 @@ export default function Reproducao() {
         </Card>
       </div>
 
-      <Tabs defaultValue="protocolos">
+      <Tabs defaultValue={tabInicial}>
         <TabsList>
           <TabsTrigger value="protocolos">Protocolos IATF ({state.protocolosIATF.length})</TabsTrigger>
           <TabsTrigger value="dg">Diagnósticos ({fmtNum(dgsFeitos.length)})</TabsTrigger>

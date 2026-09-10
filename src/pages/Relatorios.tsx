@@ -34,7 +34,8 @@ function LinhaDado({ rotulo, valor }: { rotulo: string; valor: string }) {
 
 function TabelaRelatorio({ cab, linhas }: { cab: string[]; linhas: (string | number)[][] }) {
   return (
-    <table className="w-full text-[12px]">
+    <div className="overflow-x-auto">
+      <table className="w-full text-[12px]">
       <thead>
         <tr className="border-b">
           {cab.map((c, i) => (
@@ -53,7 +54,8 @@ function TabelaRelatorio({ cab, linhas }: { cab: string[]; linhas: (string | num
           </tr>
         ))}
       </tbody>
-    </table>
+      </table>
+    </div>
   )
 }
 

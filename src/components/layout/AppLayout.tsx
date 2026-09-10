@@ -135,10 +135,11 @@ export function AppLayout() {
   const [resetOpen, setResetOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
 
-  // fecha o drawer ao trocar de rota (links, busca, alertas…)
+  // fecha o drawer e volta ao topo ao trocar de rota (links, busca, alertas…)
   useEffect(() => {
     setMenuOpen(false)
-  }, [location.pathname])
+    window.scrollTo(0, 0)
+  }, [location.pathname, location.search])
 
   const buscarBrinco = () => {
     const q = busca.trim().toLowerCase()

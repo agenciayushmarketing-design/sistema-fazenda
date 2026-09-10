@@ -9,6 +9,10 @@ const TabsContext = React.createContext<TabsContextValue | null>(null)
 
 export function Tabs({ defaultValue, children, className }: { defaultValue: string; children: React.ReactNode; className?: string }) {
   const [value, setValue] = React.useState(defaultValue)
+  // deep-link: se a aba pedida na URL mudar, acompanha
+  React.useEffect(() => {
+    setValue(defaultValue)
+  }, [defaultValue])
   return (
     <TabsContext.Provider value={{ value, setValue }}>
       <div className={className}>{children}</div>

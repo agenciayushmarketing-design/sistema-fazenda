@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Plus, ShoppingCart, Banknote } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, FormRow } from '@/components/shared'
@@ -68,6 +68,8 @@ export default function Rebanho() {
   const [novoOpen, setNovoOpen] = useState(false)
   const [vendaOpen, setVendaOpen] = useState(false)
   const [compraOpen, setCompraOpen] = useState(false)
+  const [searchParams] = useSearchParams()
+  const tabInicial = searchParams.get('tab') === 'movimentacao' ? 'movimentacao' : 'animais'
 
   const animaisFiltrados = useMemo(() => {
     return ativos(state.animais)
@@ -131,7 +133,7 @@ export default function Rebanho() {
         ))}
       </div>
 
-      <Tabs defaultValue="animais">
+      <Tabs defaultValue={tabInicial}>
         <TabsList>
           <TabsTrigger value="animais">Animais ({fmtNum(animaisFiltrados.length)})</TabsTrigger>
           <TabsTrigger value="movimentacao">Livro de movimentação ({fmtNum(state.movimentacoes.length)})</TabsTrigger>

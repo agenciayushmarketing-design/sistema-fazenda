@@ -859,9 +859,10 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     modulos: ['/', '/rebanho', '/cria', '/reproducao', '/sanitario', '/estoque', '/relatorios'],
     destaques: [
       { rotulo: 'Partos e desmames da safra', link: '/cria' },
-      { rotulo: 'Previsão de apartação aos 8 meses', link: '/cria' },
-      { rotulo: 'IP (intervalo entre partos) por matriz', link: '/cria' },
-      { rotulo: 'IATF, DG e partos previstos', link: '/reproducao' },
+      { rotulo: 'Previsão de apartação aos 8 meses', link: '/cria?tab=apartacao' },
+      { rotulo: 'IP (intervalo entre partos) por matriz', link: '/cria?tab=ip' },
+      { rotulo: 'IATF, DG e partos previstos', link: '/reproducao?tab=partos' },
+      { rotulo: 'Lista de descarte (vazias + IP)', link: '/reproducao?tab=descarte' },
       { rotulo: 'Vacinação e ronda sanitária', link: '/sanitario' },
     ],
   },

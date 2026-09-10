@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Plus, AlertTriangle } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
@@ -29,6 +30,8 @@ export default function Estoque() {
   const state = useStore()
   const [filtroCat, setFiltroCat] = useState('')
   const [saidaOpen, setSaidaOpen] = useState(false)
+  const [searchParams] = useSearchParams()
+  const tabInicial = searchParams.get('tab') === 'movimentacao' ? 'movimentacao' : 'saldos'
 
   const hoje = hojeISO()
   const limiteValidade = addDays(hoje, 60)
@@ -65,7 +68,7 @@ export default function Estoque() {
         <StatCard label="Vencendo em 60 dias" value={fmtNum(vencendo.length)} detail={vencendo.map((i) => i.nome).join(', ') || 'nenhum'} tone={vencendo.length > 0 ? 'warning' : 'good'} />
       </div>
 
-      <Tabs defaultValue="saldos">
+      <Tabs defaultValue={tabInicial}>
         <TabsList>
           <TabsTrigger value="saldos">Saldos</TabsTrigger>
           <TabsTrigger value="movimentacao">Movimentação ({fmtNum(state.movEstoque.length)})</TabsTrigger>

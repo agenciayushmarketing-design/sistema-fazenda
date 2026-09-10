@@ -461,7 +461,7 @@ export function alertas(data: SeedData): Alerta[] {
       severidade: 'warning',
       titulo: `${pendentes} matrizes com DG pendente`,
       detalhe: 'Agendar diagnóstico de gestação do repasse',
-      link: '/reproducao',
+      link: '/reproducao?tab=pendentes',
     })
   }
   for (const os of data.ordensServico) {
@@ -482,7 +482,7 @@ export function alertas(data: SeedData): Alerta[] {
       severidade: 'warning',
       titulo: `${descarte.size} matriz(es) candidatas a descarte`,
       detalhe: `Vazias há ${data.config.diasVaziaDescarte}+ dias ou IP acima de ${data.config.toleranciaIPMeses} meses`,
-      link: '/reproducao',
+      link: '/reproducao?tab=descarte',
     })
   }
   const partosProximos = partosPrevistos(data).filter((p) => p.diasRestantes <= 30)
@@ -492,7 +492,7 @@ export function alertas(data: SeedData): Alerta[] {
       severidade: 'warning',
       titulo: `${partosProximos.length} parto(s) previsto(s) em 30 dias`,
       detalhe: 'Preparar piquete maternidade e reforçar a ronda nas matrizes',
-      link: '/reproducao',
+      link: '/reproducao?tab=partos',
     })
   }
   const abertas = ocorrenciasAbertas(data)
@@ -505,7 +505,7 @@ export function alertas(data: SeedData): Alerta[] {
         .slice(0, 2)
         .map((a) => (a.ocorrencia.brinco ? `${a.ocorrencia.brinco}: ` : '') + a.ocorrencia.descricao)
         .join(' · '),
-      link: '/sanitario',
+      link: '/sanitario?tab=rondas',
     })
   }
   for (const m of maquinasComRevisaoProxima(data)) {

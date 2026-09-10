@@ -1,4 +1,5 @@
 import { useState, Fragment } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Plus, Syringe, CheckCircle2, X } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
@@ -34,6 +35,8 @@ export default function Sanitario() {
   const [manejoOpen, setManejoOpen] = useState(false)
   const [rondaOpen, setRondaOpen] = useState(false)
   const [rondaExpandida, setRondaExpandida] = useState('')
+  const [searchParams] = useSearchParams()
+  const tabInicial = searchParams.get('tab') === 'rondas' ? 'rondas' : 'manejos'
 
   const hoje = hojeISO()
   const mesAtual = hoje.slice(0, 7)
@@ -85,7 +88,7 @@ export default function Sanitario() {
         />
       </div>
 
-      <Tabs defaultValue="manejos">
+      <Tabs defaultValue={tabInicial}>
         <TabsList>
           <TabsTrigger value="manejos">Manejos em lote ({fmtNum(state.manejosSanitarios.length)})</TabsTrigger>
           <TabsTrigger value="rondas">Rondas sanitárias ({fmtNum(state.rondas.length)})</TabsTrigger>
