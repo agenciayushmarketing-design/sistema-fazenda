@@ -1,21 +1,23 @@
-import React from 'react'
+import React, { lazy } from 'react'
 import ReactDOM from 'react-dom/client'
 import { createHashRouter, RouterProvider } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
-import Dashboard from '@/pages/Dashboard'
-import Rebanho from '@/pages/Rebanho'
-import FichaAnimal from '@/pages/FichaAnimal'
-import Cria from '@/pages/Cria'
-import Recria from '@/pages/Recria'
-import Reproducao from '@/pages/Reproducao'
-import Sanitario from '@/pages/Sanitario'
-import Estoque from '@/pages/Estoque'
-import Compras from '@/pages/Compras'
-import Financeiro from '@/pages/Financeiro'
-import Maquinas from '@/pages/Maquinas'
-import OrdensServico from '@/pages/OrdensServico'
-import Leite from '@/pages/Leite'
 import './index.css'
+
+// páginas carregadas sob demanda (code-splitting) — o Suspense vive no AppLayout
+const Dashboard = lazy(() => import('@/pages/Dashboard'))
+const Rebanho = lazy(() => import('@/pages/Rebanho'))
+const FichaAnimal = lazy(() => import('@/pages/FichaAnimal'))
+const Cria = lazy(() => import('@/pages/Cria'))
+const Recria = lazy(() => import('@/pages/Recria'))
+const Reproducao = lazy(() => import('@/pages/Reproducao'))
+const Sanitario = lazy(() => import('@/pages/Sanitario'))
+const Estoque = lazy(() => import('@/pages/Estoque'))
+const Compras = lazy(() => import('@/pages/Compras'))
+const Financeiro = lazy(() => import('@/pages/Financeiro'))
+const Maquinas = lazy(() => import('@/pages/Maquinas'))
+const OrdensServico = lazy(() => import('@/pages/OrdensServico'))
+const Leite = lazy(() => import('@/pages/Leite'))
 
 const router = createHashRouter([
   {

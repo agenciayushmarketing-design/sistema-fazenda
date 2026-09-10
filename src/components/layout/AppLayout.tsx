@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -221,7 +221,15 @@ export function AppLayout() {
           </button>
         </header>
         <main className="min-w-0 flex-1 p-3 lg:p-4">
-          <Outlet />
+          <Suspense
+            fallback={
+              <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+                Carregando…
+              </div>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
 

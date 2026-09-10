@@ -1,5 +1,7 @@
 # Demo de gestão de rebanho bovino — multi-perfil
 
+**Demo online:** https://agenciayushmarketing-design.github.io/sistema-fazenda/
+
 Aplicação **front-end apenas** (React + Vite + TypeScript + Tailwind + shadcn/ui + Recharts) para demonstração comercial de um sistema de gestão pecuária. **Todos os dados são fictícios**: o dataset inteiro é gerado deterministicamente em [`src/data/seed.ts`](src/data/seed.ts) a partir de parâmetros declarados por perfil, com datas relativas ao dia atual (a demo não envelhece). Não há backend nem chamadas de rede — o estado vive em memória (Zustand), é persistido no `localStorage` do navegador e pode ser restaurado a qualquer momento pelo botão **"Restaurar dados da demo"**. Nenhuma informação sai do navegador.
 
 ## Perfis de demonstração
