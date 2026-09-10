@@ -8,6 +8,48 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232a78d6'/%3E%3Ctext x='16' y='22' font-family='system-ui,sans-serif' font-size='14' font-weight='700' fill='white' text-anchor='middle'%3ESH%3C/text%3E%3C/svg%3E"
     />
     <title>Fazenda Santa Helena — Gestão de Rebanho</title>
+    <script>
+      // Guardião de carga: se algum arquivo do app falhar (CDN atualizando após um
+      // deploy, cache velho…), tenta recarregar sozinho antes mesmo do app existir.
+      // Nunca deixar tela branca. O app limpa a contagem quando abre com sucesso.
+      ;(function () {
+        var CHAVE = 'fazenda-demo-boot-retry'
+        var MAX = 3
+        var agindo = false
+        function aoFalhar (e) {
+          var el = e && e.target
+          if (!el || !el.tagName) return
+          var tag = el.tagName
+          if (tag !== 'SCRIPT' && tag !== 'LINK') return
+          if (agindo) return
+          agindo = true
+          var tentativas = 0
+          try { tentativas = Number(sessionStorage.getItem(CHAVE) || 0) } catch (_) {}
+          var root = document.getElementById('root')
+          if (tentativas >= MAX) {
+            if (root) {
+              root.innerHTML =
+                '<div style="font-family:system-ui,sans-serif;max-width:420px;margin:15vh auto;padding:24px;text-align:center;color:#333">' +
+                '<div style="font-size:36px">🐂</div>' +
+                '<h1 style="font-size:18px;margin:8px 0 4px">Demonstração atualizando</h1>' +
+                '<p style="font-size:13px;color:#666">O servidor está publicando uma versão nova. Aguarde um instante e tente de novo.</p>' +
+                '<button onclick="sessionStorage.removeItem(\'' + CHAVE + '\');location.reload()" ' +
+                'style="margin-top:12px;padding:8px 16px;font-size:13px;border:0;border-radius:6px;background:#2a78d6;color:#fff;cursor:pointer">Tentar novamente</button>' +
+                '</div>'
+            }
+            return
+          }
+          try { sessionStorage.setItem(CHAVE, String(tentativas + 1)) } catch (_) {}
+          if (root) {
+            root.innerHTML =
+              '<div style="font-family:system-ui,sans-serif;margin:15vh auto;text-align:center;color:#666;font-size:13px">' +
+              'Atualizando a demonstração… recarregando automaticamente</div>'
+          }
+          setTimeout(function () { location.reload() }, 2000 * (tentativas + 1))
+        }
+        window.addEventListener('error', aoFalhar, true)
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

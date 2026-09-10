@@ -72,3 +72,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <RouterProvider router={router} />
   </React.StrictMode>,
 )
+
+// app montou: zera o contador do guardião de carga do index.html
+try {
+  sessionStorage.removeItem('fazenda-demo-boot-retry')
+} catch {
+  /* sem storage */
+}

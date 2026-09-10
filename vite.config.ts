@@ -5,8 +5,9 @@ import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig(({ command }) => ({
   plugins: [react()],
-  // GitHub Pages serve o site em /sistema-fazenda/ — em dev continua na raiz
-  base: command === 'build' ? '/sistema-fazenda/' : '/',
+  // base relativa: o build funciona em qualquer hospedagem/subpasta
+  // (GitHub Pages, Hostinger, vite preview…) — em dev continua na raiz
+  base: command === 'build' ? './' : '/',
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
