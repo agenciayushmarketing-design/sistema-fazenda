@@ -206,6 +206,35 @@ describe.each(PERFIS_LISTA)('coerência do seed — perfil %s', (perfil) => {
     expect(receitaVendas).toBeCloseTo(esperado, 2)
   })
 
+  it('sanitário: manejos referenciam insumos do estoque e rondas citam brincos existentes', () => {
+    expect(seed.manejosSanitarios.length).toBeGreaterThan(0)
+    for (const m of seed.manejosSanitarios) {
+      if (m.itemEstoqueId) {
+        expect(seed.estoque.some((i) => i.id === m.itemEstoqueId), `manejo ${m.id} com insumo inexistente`).toBe(true)
+      }
+      expect(m.qtdAnimais).toBeGreaterThan(0)
+    }
+    expect(seed.rondas.length).toBeGreaterThan(0)
+    const brincos = new Set(seed.animais.filter((a) => a.status === 'ativo').map((a) => a.brinco))
+    for (const r of seed.rondas) {
+      expect(seed.pastos.some((p) => p.id === r.pastoId), `ronda ${r.id} com pasto inexistente`).toBe(true)
+      for (const o of r.ocorrencias) {
+        if (o.brinco) {
+          expect(brincos.has(o.brinco), `ronda ${r.id} cita brinco inexistente ${o.brinco}`).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('partos previstos: toda prenha tem DPP coerente com a concepção (+283 dias)', () => {
+    for (const d of seed.diagnosticos) {
+      if (d.resultado !== 'prenha') continue
+      expect(d.dataConcepcao, `prenha ${d.matrizBrinco} sem concepção`).toBeDefined()
+      expect(d.dppEstimado, `prenha ${d.matrizBrinco} sem DPP`).toBeDefined()
+      expect(diffDays(d.dataConcepcao!, d.dppEstimado!)).toBe(283)
+    }
+  })
+
   it('geração é determinística para a mesma data', () => {
     const outra = buildSeed(perfil, HOJE)
     expect(JSON.stringify(outra)).toBe(JSON.stringify(seed))

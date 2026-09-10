@@ -15,6 +15,7 @@ import {
   ClipboardList,
   Milk,
   Menu,
+  Stethoscope,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -32,6 +33,7 @@ const NAV = [
   { to: '/cria', label: 'Cria', icon: Baby },
   { to: '/recria', label: 'Recria', icon: TrendingUp },
   { to: '/reproducao', label: 'Reprodução', icon: HeartPulse },
+  { to: '/sanitario', label: 'Sanitário', icon: Stethoscope },
   { to: '/leite', label: 'Leite', icon: Milk },
   { to: '/estoque', label: 'Estoque', icon: Package },
   { to: '/compras', label: 'Compras', icon: ShoppingCart },

@@ -15,9 +15,9 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
-import { metricasReproducao } from '@/lib/metrics'
+import { metricasReproducao, partosPrevistos, partosPrevistosPorMes } from '@/lib/metrics'
 import { addDays } from '@/data/seed'
-import { fmtBRL, fmtDate, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
+import { fmtBRL, fmtDate, fmtMesAno, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
 
 export default function Reproducao() {
@@ -30,6 +30,9 @@ export default function Reproducao() {
   const dgsPendentes = state.diagnosticos.filter((d) => d.resultado === 'pendente')
   const dgsFeitos = state.diagnosticos.filter((d) => d.resultado !== 'pendente')
   const dgsPag = usePagination(dgsFeitos, 50)
+  const previstos = partosPrevistos(state)
+  const previstosMes = partosPrevistosPorMes(state)
+  const previstosPag = usePagination(previstos, 50)
 
   return (
     <div>
@@ -114,6 +117,7 @@ export default function Reproducao() {
           <TabsTrigger value="protocolos">Protocolos IATF ({state.protocolosIATF.length})</TabsTrigger>
           <TabsTrigger value="dg">Diagnósticos ({fmtNum(dgsFeitos.length)})</TabsTrigger>
           <TabsTrigger value="pendentes">DG pendente ({fmtNum(dgsPendentes.length)})</TabsTrigger>
+          <TabsTrigger value="partos">Partos previstos ({fmtNum(previstos.length)})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="protocolos">
@@ -238,6 +242,60 @@ export default function Reproducao() {
                 )}
               </TableBody>
             </Table>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="partos">
+          <div className="mb-3 rounded-lg border bg-card px-4 pt-3 pb-1">
+            <div className="text-[13px] font-semibold">Nascimentos previstos por mês (pelo DPP das prenhas)</div>
+            <ResponsiveContainer width="100%" height={170}>
+              <BarChart data={previstosMes} margin={{ top: 16, right: 12, left: -16, bottom: 0 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="mes" tickFormatter={fmtMesAno} {...axisProps} />
+                <YAxis allowDecimals={false} {...axisProps} />
+                <Tooltip {...tooltipStyle} labelFormatter={(v) => fmtMesAno(String(v))} formatter={(v) => [String(v), 'Partos previstos']} />
+                <Bar dataKey="qtd" name="Partos previstos" fill={SERIES[0]} radius={[3, 3, 0, 0]} label={{ position: 'top', fontSize: 11, fill: '#52514e' }} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="rounded-lg border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Matriz</TableHead>
+                  <TableHead>Origem da prenhez</TableHead>
+                  <TableHead>Concepção</TableHead>
+                  <TableHead>DPP (parto previsto)</TableHead>
+                  <TableHead className="text-right">Dias restantes</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {previstosPag.pageItems.map((p) => (
+                  <TableRow key={p.matrizBrinco}>
+                    <TableCell className="font-medium">{p.matrizBrinco}</TableCell>
+                    <TableCell>{p.origem === 'IATF' ? 'IATF' : 'Repasse (touro)'}</TableCell>
+                    <TableCell className="tnum">{fmtDate(p.dataConcepcao)}</TableCell>
+                    <TableCell>
+                      <span className="tnum">{fmtDate(p.dpp)}</span>{' '}
+                      {p.diasRestantes <= 30 && <Badge variant="warning">próximo</Badge>}
+                    </TableCell>
+                    <TableCell className="tnum text-right">{p.diasRestantes}</TableCell>
+                  </TableRow>
+                ))}
+                {previstos.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-muted-foreground">
+                      Nenhuma prenhez confirmada com DPP futuro.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+            <TablePagination {...previstosPag} />
+            <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+              DPP = data provável de parto (concepção + 283 dias). Partos a 30 dias ou menos viram
+              alerta no Dashboard — hora de montar o piquete maternidade.
+            </div>
           </div>
         </TabsContent>
       </Tabs>

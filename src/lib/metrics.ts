@@ -151,6 +151,41 @@ export function prenhezPorTerco(data: Pick<SeedData, 'diagnosticos' | 'estacoes'
   ]
 }
 
+// ---- Partos previstos (calendário de nascimentos a partir dos DPPs) ----
+export function partosPrevistos(data: Pick<SeedData, 'diagnosticos'>) {
+  const hoje = hojeISO()
+  return data.diagnosticos
+    .filter((d) => d.resultado === 'prenha' && d.dppEstimado && d.dppEstimado >= hoje)
+    .map((d) => ({
+      matrizBrinco: d.matrizBrinco,
+      origem: d.origemPrenhez,
+      dataConcepcao: d.dataConcepcao,
+      dpp: d.dppEstimado!,
+      diasRestantes: diffDays(hoje, d.dppEstimado!),
+    }))
+    .sort((a, b) => a.dpp.localeCompare(b.dpp))
+}
+
+export function partosPrevistosPorMes(data: Pick<SeedData, 'diagnosticos'>) {
+  const porMes = new Map<string, number>()
+  for (const p of partosPrevistos(data)) {
+    const mes = p.dpp.slice(0, 7)
+    porMes.set(mes, (porMes.get(mes) ?? 0) + 1)
+  }
+  return [...porMes.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([mes, qtd]) => ({ mes: `${mes}-01`, qtd }))
+}
+
+// ---- Sanitário ----
+export function ocorrenciasAbertas(data: Pick<SeedData, 'rondas'>) {
+  return data.rondas.flatMap((r) =>
+    r.ocorrencias
+      .filter((o) => !o.resolvida)
+      .map((o) => ({ ronda: r, ocorrencia: o })),
+  )
+}
+
 // ---- Cria ----
 
 /** IP por matriz: parto da safra atual × parto da safra anterior */
@@ -329,7 +364,7 @@ export function metricasLeite(data: Pick<SeedData, 'producaoLeite' | 'leite'>) {
 
 // ---- Alertas ----
 export interface Alerta {
-  tipo: 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina'
+  tipo: 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario'
   severidade: 'warning' | 'critical'
   titulo: string
   detalhe: string
@@ -395,6 +430,29 @@ export function alertas(data: SeedData): Alerta[] {
         link: '/os',
       })
     }
+  }
+  const partosProximos = partosPrevistos(data).filter((p) => p.diasRestantes <= 30)
+  if (partosProximos.length > 0) {
+    out.push({
+      tipo: 'parto',
+      severidade: 'warning',
+      titulo: `${partosProximos.length} parto(s) previsto(s) em 30 dias`,
+      detalhe: 'Preparar piquete maternidade e reforçar a ronda nas matrizes',
+      link: '/reproducao',
+    })
+  }
+  const abertas = ocorrenciasAbertas(data)
+  if (abertas.length > 0) {
+    out.push({
+      tipo: 'sanitario',
+      severidade: abertas.some((a) => a.ocorrencia.tipo === 'doente') ? 'critical' : 'warning',
+      titulo: `${abertas.length} ocorrência(s) de ronda em aberto`,
+      detalhe: abertas
+        .slice(0, 2)
+        .map((a) => (a.ocorrencia.brinco ? `${a.ocorrencia.brinco}: ` : '') + a.ocorrencia.descricao)
+        .join(' · '),
+      link: '/sanitario',
+    })
   }
   for (const m of maquinasComRevisaoProxima(data)) {
     out.push({

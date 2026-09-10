@@ -8,6 +8,7 @@ import FichaAnimal from '@/pages/FichaAnimal'
 import Cria from '@/pages/Cria'
 import Recria from '@/pages/Recria'
 import Reproducao from '@/pages/Reproducao'
+import Sanitario from '@/pages/Sanitario'
 import Estoque from '@/pages/Estoque'
 import Compras from '@/pages/Compras'
 import Financeiro from '@/pages/Financeiro'
@@ -27,6 +28,7 @@ const router = createHashRouter([
       { path: '/recria', element: <Recria /> },
       { path: '/reproducao', element: <Reproducao /> },
       { path: '/leite', element: <Leite /> },
+      { path: '/sanitario', element: <Sanitario /> },
       { path: '/estoque', element: <Estoque /> },
       { path: '/compras', element: <Compras /> },
       { path: '/financeiro', element: <Financeiro /> },

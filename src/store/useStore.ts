@@ -9,6 +9,7 @@ import type {
   Desmame,
   DiagnosticoGestacao,
   Lancamento,
+  ManejoSanitario,
   Manutencao,
   MovEstoque,
   Movimentacao,
@@ -20,6 +21,7 @@ import type {
   Pesagem,
   ProducaoLeite,
   ProtocoloIATF,
+  RondaSanitaria,
   SeedData,
   StatusOS,
 } from '@/data/types'
@@ -95,6 +97,21 @@ interface Actions {
 
   // Leite
   addProducaoLeite: (p: ProducaoLeite) => void
+
+  // Sanitário
+  /** Manejo em lote: baixa o estoque e escreve o evento na ficha de cada animal do alvo */
+  registrarManejoLote: (p: {
+    data: string
+    tipo: ManejoSanitario['tipo']
+    itemEstoqueId: string
+    loteId?: string // ausente = rebanho geral
+    dosePorAnimal: number
+    responsavel: string
+    obs?: string
+  }) => { ok: boolean; erro?: string; qtdAnimais?: number }
+  /** Ronda: registra ocorrências; tratamento escreve na ficha, morte dá baixa no animal */
+  addRonda: (r: Omit<RondaSanitaria, 'id'>) => { ok: boolean; erro?: string }
+  resolverOcorrencia: (rondaId: string, index: number) => void
 }
 
 export type Store = SeedData & Actions
@@ -608,10 +625,133 @@ export const useStore = create<Store>()(
             a.data.localeCompare(b.data),
           ),
         })),
+
+      registrarManejoLote: ({ data, tipo, itemEstoqueId, loteId, dosePorAnimal, responsavel, obs }) => {
+        const s = get()
+        const item = s.estoque.find((i) => i.id === itemEstoqueId)
+        if (!item) return { ok: false, erro: 'Insumo não encontrado no estoque.' }
+        const alvo = loteId
+          ? s.animais.filter((a) => a.status === 'ativo' && a.loteId === loteId)
+          : s.animais.filter((a) => a.status === 'ativo')
+        if (alvo.length === 0) return { ok: false, erro: 'Nenhum animal ativo no alvo escolhido.' }
+        const consumo = Math.ceil(alvo.length * dosePorAnimal * 100) / 100
+        if (consumo > item.saldo) {
+          return {
+            ok: false,
+            erro: `Estoque insuficiente: precisa de ${consumo.toLocaleString('pt-BR')} ${item.unidade}, saldo ${item.saldo.toLocaleString('pt-BR')}.`,
+          }
+        }
+        const alvoNome = loteId ? s.lotes.find((l) => l.id === loteId)?.nome ?? loteId : 'Rebanho geral'
+        const tipoLabel = tipo === 'vacinacao' ? 'Vacinação' : tipo === 'vermifugacao' ? 'Vermifugação' : 'Medicação'
+        const ids = new Set(alvo.map((a) => a.id))
+        set({
+          manejosSanitarios: [
+            ...s.manejosSanitarios,
+            {
+              id: nid('MS'),
+              data,
+              tipo,
+              produto: item.nome,
+              itemEstoqueId,
+              alvo: alvoNome,
+              qtdAnimais: alvo.length,
+              responsavel,
+              obs,
+            },
+          ],
+          animais: s.animais.map((a) =>
+            ids.has(a.id)
+              ? { ...a, sanitario: [...a.sanitario, { data, tipo: tipoLabel, produto: item.nome }] }
+              : a,
+          ),
+          movEstoque: [
+            ...s.movEstoque,
+            {
+              id: nid('ME'),
+              data,
+              itemId: itemEstoqueId,
+              tipo: 'saida' as const,
+              quantidade: consumo,
+              loteDestino: alvoNome,
+              obs: `${tipoLabel} em lote — ${alvo.length} animais`,
+            },
+          ],
+          estoque: s.estoque.map((i) =>
+            i.id === itemEstoqueId ? { ...i, saldo: Math.round((i.saldo - consumo) * 100) / 100 } : i,
+          ),
+        })
+        return { ok: true, qtdAnimais: alvo.length }
+      },
+
+      addRonda: (r) => {
+        const s = get()
+        // brincos citados precisam existir no rebanho ativo
+        for (const o of r.ocorrencias) {
+          if (o.brinco && !s.animais.some((a) => a.brinco === o.brinco && a.status === 'ativo')) {
+            return { ok: false, erro: `Brinco ${o.brinco} não encontrado no rebanho ativo.` }
+          }
+        }
+        let animais = s.animais
+        let movimentacoes = s.movimentacoes
+        let baixas = 0
+        for (const o of r.ocorrencias) {
+          if (!o.brinco) continue
+          const animal = animais.find((a) => a.brinco === o.brinco && a.status === 'ativo')
+          if (!animal) continue
+          if (o.tipo === 'tratamento' || o.tipo === 'doente') {
+            animais = animais.map((a) =>
+              a.id === animal.id
+                ? {
+                    ...a,
+                    sanitario: [
+                      ...a.sanitario,
+                      { data: r.data, tipo: o.tipo === 'tratamento' ? 'Tratamento (ronda)' : 'Em observação (ronda)', produto: o.descricao },
+                    ],
+                  }
+                : a,
+            )
+          } else if (o.tipo === 'morte') {
+            baixas++
+            animais = animais.map((a) => (a.id === animal.id ? { ...a, status: 'morto' as const } : a))
+            movimentacoes = [
+              ...movimentacoes,
+              {
+                id: nid('MV'),
+                data: r.data,
+                tipo: 'morte' as const,
+                brinco: animal.brinco,
+                categoria: animal.categoria,
+                quantidade: 1,
+                origem: animal.loteId,
+                obs: `Ronda sanitária: ${o.descricao}`,
+              },
+            ]
+          }
+        }
+        set({
+          rondas: [...s.rondas, { id: nid('RS'), ...r }],
+          animais,
+          movimentacoes,
+          fazenda: baixas > 0 ? { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - baixas } : s.fazenda,
+        })
+        return { ok: true }
+      },
+
+      resolverOcorrencia: (rondaId, index) =>
+        set((s) => ({
+          rondas: s.rondas.map((r) =>
+            r.id === rondaId
+              ? {
+                  ...r,
+                  ocorrencias: r.ocorrencias.map((o, i) => (i === index ? { ...o, resolvida: true } : o)),
+                }
+              : r,
+          ),
+        })),
     }),
     {
       name: STORAGE_KEY,
-      version: 3, // v3: perfil cria_120 → cria_150
+      version: 4, // v4: módulo sanitário (manejos + rondas)
       // dados persistidos de versões anteriores não têm os novos módulos/perfis → re-semeia
       migrate: () => buildSeed('ciclo_completo') as unknown as Store,
     },

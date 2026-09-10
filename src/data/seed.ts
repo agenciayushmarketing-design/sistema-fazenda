@@ -21,6 +21,7 @@ import type {
   Lancamento,
   Lote,
   LoteRecria,
+  ManejoSanitario,
   Maquina,
   MovEstoque,
   Movimentacao,
@@ -32,6 +33,7 @@ import type {
   PrecoHistorico,
   ProducaoLeite,
   ProtocoloIATF,
+  RondaSanitaria,
   SeedData,
   TouroRepasse,
 } from './types'
@@ -180,6 +182,23 @@ interface PerfilParams {
     notas: { dias: number; texto: string }[]
   }[]
   leite?: { vacasLactacao: number; precoLitro: number; mediaLitrosVacaDia: number }
+  manejos: {
+    dia: number
+    tipo: ManejoSanitario['tipo']
+    produto: string
+    itemEstoqueId?: string
+    alvo: string
+    qtdAnimais: number
+    responsavel: string
+    obs?: string
+  }[]
+  rondas: {
+    dia: number
+    responsavel: string
+    pastoId: string
+    obs?: string
+    ocorrencias: { brinco?: string; tipo: RondaSanitaria['ocorrencias'][number]['tipo']; descricao: string; resolvida: boolean }[]
+  }[]
 }
 
 // ---------------------------------------------------------------------
@@ -364,6 +383,28 @@ const PERFIL_CICLO: PerfilParams = {
   ],
   maquinas: [],
   ordensServico: [],
+  manejos: [
+    { dia: -70, tipo: 'vacinacao', produto: 'Vacina aftosa', itemEstoqueId: 'VAC-AFT', alvo: 'Rebanho geral', qtdAnimais: 1200, responsavel: 'Equipe de campo', obs: 'Campanha oficial — 1.200 doses' },
+    { dia: -70, tipo: 'vermifugacao', produto: 'Ivermectina 1%', itemEstoqueId: 'MED-IVE', alvo: 'Rebanho geral', qtdAnimais: 1200, responsavel: 'Equipe de campo', obs: '35 frascos consumidos' },
+    { dia: -40, tipo: 'vacinacao', produto: 'Vacina clostridiose', itemEstoqueId: 'VAC-CLO', alvo: 'Bezerros(as) da safra', qtdAnimais: 330, responsavel: 'Carlos Mendes' },
+    { dia: -40, tipo: 'vacinacao', produto: 'Vacina brucelose B19', itemEstoqueId: 'VAC-BRU', alvo: 'Bezerras 3–8 meses', qtdAnimais: 80, responsavel: 'Carlos Mendes' },
+  ],
+  rondas: [
+    {
+      dia: -2, responsavel: 'Zé Carlos', pastoId: 'P1',
+      ocorrencias: [
+        { brinco: 'GR-023', tipo: 'doente', descricao: 'Apatia e febre — suspeita de pneumonia, apartado para tratamento', resolvida: false },
+        { tipo: 'observacao', descricao: 'Cocho de sal vazio no fundo do pasto', resolvida: false },
+      ],
+    },
+    {
+      dia: -6, responsavel: 'João Pedro', pastoId: 'P2',
+      ocorrencias: [
+        { brinco: 'BZ-014', tipo: 'tratamento', descricao: 'Bicheira no umbigo — aplicado matabicheira', resolvida: true },
+      ],
+    },
+    { dia: -12, responsavel: 'Zé Carlos', pastoId: 'P3', obs: 'Sem ocorrências — pasto e aguadas em ordem', ocorrencias: [] },
+  ],
 }
 
 // ---------------------------------------------------------------------
@@ -486,6 +527,27 @@ const PERFIL_CRIA: PerfilParams = {
   ],
   maquinas: [],
   ordensServico: [],
+  manejos: [
+    { dia: -30, tipo: 'vacinacao', produto: 'Vacina aftosa', itemEstoqueId: 'VAC-AFT', alvo: 'Rebanho geral', qtdAnimais: 299, responsavel: 'João Batista', obs: 'Campanha oficial' },
+    { dia: -30, tipo: 'vermifugacao', produto: 'Ivermectina 1%', itemEstoqueId: 'MED-IVE', alvo: 'Rebanho geral', qtdAnimais: 299, responsavel: 'João Batista' },
+    { dia: -25, tipo: 'vacinacao', produto: 'Vacina clostridiose', itemEstoqueId: 'VAC-CLO', alvo: 'Bezerros(as) da safra', qtdAnimais: 113, responsavel: 'João Batista' },
+  ],
+  rondas: [
+    {
+      dia: -1, responsavel: 'João Batista', pastoId: 'P1',
+      ocorrencias: [
+        { brinco: 'BZ-021', tipo: 'doente', descricao: 'Bezerro com diarreia — separado com a mãe no piquete da sede', resolvida: false },
+      ],
+    },
+    {
+      dia: -5, responsavel: 'João Batista', pastoId: 'P2',
+      ocorrencias: [
+        { brinco: 'V-0088', tipo: 'tratamento', descricao: 'Casco rachado — aplicado curativo e antibiótico', resolvida: true },
+        { tipo: 'observacao', descricao: 'Cerca do fundo precisando de reforço em dois palanques', resolvida: false },
+      ],
+    },
+    { dia: -9, responsavel: 'Dona Marta', pastoId: 'P3', obs: 'Sem ocorrências', ocorrencias: [] },
+  ],
 }
 
 // ---------------------------------------------------------------------
@@ -729,6 +791,28 @@ const PERFIL_CORTE_LEITE: PerfilParams = {
     },
   ],
   leite: { vacasLactacao: 42, precoLitro: 2.65, mediaLitrosVacaDia: 18 },
+  manejos: [
+    { dia: -60, tipo: 'vacinacao', produto: 'Vacina aftosa', itemEstoqueId: 'VAC-AFT', alvo: 'Rebanho geral', qtdAnimais: 500, responsavel: 'Roberto Lima', obs: 'Campanha oficial' },
+    { dia: -60, tipo: 'vermifugacao', produto: 'Ivermectina 1%', itemEstoqueId: 'MED-IVE', alvo: 'Rebanho geral', qtdAnimais: 512, responsavel: 'Equipe de campo' },
+    { dia: -35, tipo: 'vacinacao', produto: 'Vacina clostridiose', itemEstoqueId: 'VAC-CLO', alvo: 'Bezerros(as) da safra', qtdAnimais: 160, responsavel: 'Roberto Lima' },
+    { dia: -35, tipo: 'vacinacao', produto: 'Vacina brucelose B19', itemEstoqueId: 'VAC-BRU', alvo: 'Bezerras 3–8 meses', qtdAnimais: 40, responsavel: 'Roberto Lima' },
+  ],
+  rondas: [
+    {
+      dia: -1, responsavel: 'Equipe do leite', pastoId: 'P3',
+      ocorrencias: [
+        { brinco: 'L-0012', tipo: 'doente', descricao: 'Suspeita de mastite no quarto posterior direito — leite descartado', resolvida: false },
+      ],
+    },
+    {
+      dia: -4, responsavel: 'João Pedro', pastoId: 'P1',
+      ocorrencias: [
+        { brinco: 'GR-011', tipo: 'tratamento', descricao: 'Berne no lombo — aplicado mata-bicheira', resolvida: true },
+        { brinco: 'BZ-030', tipo: 'observacao', descricao: 'Bezerro apartado da mãe, reunido ao lote', resolvida: true },
+      ],
+    },
+    { dia: -8, responsavel: 'Zé Carlos', pastoId: 'P4', obs: 'Aguada baixa — acompanhar na próxima semana', ocorrencias: [] },
+  ],
 }
 
 export const PERFIS: Record<PerfilDemo, PerfilParams> = {
@@ -752,7 +836,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
   ciclo_completo: {
     nome: 'Ciclo completo',
     descricao: 'Nelore, 800 ha, 1.200 cabeças',
-    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/estoque', '/compras', '/financeiro'],
+    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/estoque', '/compras', '/financeiro'],
     boasVindas:
       'Operação de ciclo completo: da cria à terminação, com estoque, compras e custo por arroba amarrados de ponta a ponta.',
     destaques: [
@@ -767,12 +851,13 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     descricao: 'Cria pura: partos, IATF, IP e apartação',
     boasVindas:
       'Pequena propriedade de cria com tudo que importa na produção de bezerros — sem módulos que você não usa.',
-    modulos: ['/', '/rebanho', '/cria', '/reproducao', '/estoque'],
+    modulos: ['/', '/rebanho', '/cria', '/reproducao', '/sanitario', '/estoque'],
     destaques: [
       { rotulo: 'Partos e desmames da safra', link: '/cria' },
       { rotulo: 'Previsão de apartação aos 8 meses', link: '/cria' },
       { rotulo: 'IP (intervalo entre partos) por matriz', link: '/cria' },
-      { rotulo: 'IATF e diagnóstico de gestação', link: '/reproducao' },
+      { rotulo: 'IATF, DG e partos previstos', link: '/reproducao' },
+      { rotulo: 'Vacinação e ronda sanitária', link: '/sanitario' },
     ],
   },
   corte_leite: {
@@ -780,7 +865,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     descricao: 'Completo: financeiro, máquinas, OS e leite',
     boasVindas:
       'Fazenda mista de corte e leite com a gestão completa: rebanho, reprodução, financeiro, frota de máquinas e ordens de serviço.',
-    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/leite', '/estoque', '/compras', '/financeiro', '/maquinas', '/os'],
+    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/leite', '/estoque', '/compras', '/financeiro', '/maquinas', '/os'],
     destaques: [
       { rotulo: 'Fluxo de caixa e contas a pagar', link: '/financeiro' },
       { rotulo: 'Produção de leite diária', link: '/leite' },
@@ -1484,6 +1569,28 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     notas: o.notas.map((n) => ({ data: addDays(today, n.dias), texto: n.texto })),
   }))
 
+  // ---- Sanitário: manejos em lote + rondas ----
+  const manejosSanitarios: ManejoSanitario[] = P.manejos.map((m, i) => ({
+    id: `MS-${i + 1}`,
+    data: addDays(today, m.dia),
+    tipo: m.tipo,
+    produto: m.produto,
+    itemEstoqueId: m.itemEstoqueId,
+    alvo: m.alvo,
+    qtdAnimais: m.qtdAnimais,
+    responsavel: m.responsavel,
+    obs: m.obs,
+  }))
+
+  const rondas: RondaSanitaria[] = P.rondas.map((r, i) => ({
+    id: `RS-${i + 1}`,
+    data: addDays(today, r.dia),
+    responsavel: r.responsavel,
+    pastoId: r.pastoId,
+    obs: r.obs,
+    ocorrencias: r.ocorrencias.map((o) => ({ ...o })),
+  }))
+
   // ---- Leite: produção diária dos últimos 30 dias ----
   const producaoLeite: ProducaoLeite[] = []
   if (P.leite) {
@@ -1624,5 +1731,7 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     ordensServico,
     producaoLeite,
     leite: P.leite ? { ...P.leite } : undefined,
+    manejosSanitarios,
+    rondas,
   }
 }

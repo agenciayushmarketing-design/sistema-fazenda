@@ -297,6 +297,41 @@ export interface OrdemServico {
   notas: NotaOS[]
 }
 
+// ---- Sanitário ----
+export type TipoManejo = 'vacinacao' | 'vermifugacao' | 'medicacao'
+
+/** Manejo aplicado em lote (campanha): baixa o estoque e escreve na ficha de cada animal */
+export interface ManejoSanitario {
+  id: string
+  data: string
+  tipo: TipoManejo
+  produto: string
+  itemEstoqueId?: string
+  alvo: string // "Rebanho geral" ou nome do lote
+  qtdAnimais: number
+  responsavel: string
+  obs?: string
+}
+
+export type TipoOcorrencia = 'observacao' | 'tratamento' | 'doente' | 'morte'
+
+export interface OcorrenciaRonda {
+  brinco?: string
+  tipo: TipoOcorrencia
+  descricao: string
+  resolvida: boolean
+}
+
+/** Ronda sanitária: percorrer um pasto e registrar o que foi visto */
+export interface RondaSanitaria {
+  id: string
+  data: string
+  responsavel: string
+  pastoId: string
+  obs?: string
+  ocorrencias: OcorrenciaRonda[]
+}
+
 // ---- Leite ----
 export interface ProducaoLeite {
   data: string
@@ -339,4 +374,6 @@ export interface SeedData {
   ordensServico: OrdemServico[]
   producaoLeite: ProducaoLeite[]
   leite?: ConfigLeite
+  manejosSanitarios: ManejoSanitario[]
+  rondas: RondaSanitaria[]
 }

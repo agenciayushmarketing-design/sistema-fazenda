@@ -40,6 +40,23 @@ export default function FichaAnimal() {
   const parto = state.partos.find((p) => p.bezerroBrinco === animal.brinco)
   const desmame = state.desmames.find((d) => d.bezerroBrinco === animal.brinco)
 
+  // situação reprodutiva (matrizes): último DG + partos da matriz + IP
+  const ehMatriz = animal.sexo === 'F' && (animal.categoria === 'vaca' || animal.categoria === 'novilha_24')
+  const dgsMatriz = state.diagnosticos
+    .filter((d) => d.matrizBrinco === animal.brinco)
+    .sort((a, b) => b.data.localeCompare(a.data))
+  const dgAtual = dgsMatriz[0]
+  const partosMatriz = [
+    ...state.partos.filter((p) => p.matrizBrinco === animal.brinco),
+    ...state.partosAnteriores.filter((p) => p.matrizBrinco === animal.brinco),
+  ].sort((a, b) => b.data.localeCompare(a.data))
+  const ipMatriz =
+    partosMatriz.length >= 2
+      ? Math.round(
+          (new Date(partosMatriz[0].data).getTime() - new Date(partosMatriz[1].data).getTime()) / 86400000,
+        )
+      : null
+
   const pesagens = [...animal.pesagens].sort((a, b) => a.data.localeCompare(b.data))
   const gmdVida =
     pesagens.length >= 2
@@ -111,6 +128,49 @@ export default function FichaAnimal() {
           {animal.status === 'ativo' && <NovaPesagemInline animal={animal} />}
         </ChartCard>
       </div>
+
+      {ehMatriz && (
+        <Card className="mt-3">
+          <CardHeader><CardTitle>Situação reprodutiva</CardTitle></CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-center gap-2">
+              {dgAtual ? (
+                <>
+                  <Badge
+                    variant={
+                      dgAtual.resultado === 'prenha' ? 'good' : dgAtual.resultado === 'pendente' ? 'warning' : 'critical'
+                    }
+                  >
+                    {dgAtual.resultado === 'prenha' ? 'Prenha' : dgAtual.resultado === 'pendente' ? 'DG pendente' : 'Vazia'}
+                  </Badge>
+                  {dgAtual.resultado === 'prenha' && (
+                    <span className="text-[13px]">
+                      {dgAtual.origemPrenhez === 'IATF' ? 'IATF' : 'Repasse (touro)'} · concepção{' '}
+                      <span className="tnum">{fmtDate(dgAtual.dataConcepcao)}</span> · parto previsto{' '}
+                      <span className="tnum font-semibold">{fmtDate(dgAtual.dppEstimado)}</span>
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-[13px] text-muted-foreground">Sem diagnóstico registrado na estação atual.</span>
+              )}
+              {ipMatriz !== null && (
+                <Badge variant={ipMatriz <= 395 ? 'good' : ipMatriz <= 420 ? 'warning' : 'critical'}>
+                  IP: {ipMatriz} dias
+                </Badge>
+              )}
+            </div>
+            {partosMatriz.length > 0 && (
+              <div className="mt-2 text-[12px] text-muted-foreground">
+                Partos registrados:{' '}
+                {partosMatriz
+                  .map((p) => `${fmtDate(p.data)}${p.bezerroBrinco !== '—' ? ` (${p.bezerroBrinco})` : ''}`)
+                  .join(' · ')}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="mt-3 grid gap-3 lg:grid-cols-2">
         <Card>
