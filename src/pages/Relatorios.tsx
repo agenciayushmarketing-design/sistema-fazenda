@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Printer } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader } from '@/components/shared'
@@ -6,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   apartacoesPorMes, arrobasProduzidas, custoPorArroba, custoPorCentro, custoTotalRateado,
-  inventarioPorCategoria, metricasCria, metricasFinanceiro, metricasReproducao,
+  inventarioPorCategoria, metricasCria, metricasFinanceiro, metricasReproducao, nomeMembro,
   partosPrevistosPorMes, previsaoApartacao, uaPorPasto, uaTotal, ativos,
 } from '@/lib/metrics'
 import { CATEGORIA_LABEL, type Categoria } from '@/data/types'
@@ -224,7 +225,133 @@ function RelatorioFinanceiro({ state }: { state: Store }) {
   )
 }
 
+function RelatorioDia({ state }: { state: Store }) {
+  const hoje = hojeISO()
+  const doDia = <T extends { data: string }>(itens: T[]) => itens.filter((i) => i.data === hoje)
+
+  const partos = doDia(state.partos)
+  const desmames = doDia(state.desmames)
+  const manejos = doDia(state.manejosSanitarios)
+  const rondas = doDia(state.rondas)
+  const movs = doDia(state.movimentacoes)
+  const estoqueDia = doDia(state.movEstoque)
+  const financeiroDia = state.lancamentos.filter((l) => l.pagamento === hoje || l.vencimento === hoje)
+  const pesagensLote = state.lotesRecria
+    .map((l) => ({ lote: l, pes: l.pesagens.filter((p) => p.data === hoje) }))
+    .filter((x) => x.pes.length > 0)
+  const leiteHoje = state.producaoLeite.find((p) => p.data === hoje)
+  const confPendentes = state.conferencias.filter((c) => c.status === 'pendente')
+
+  const nada =
+    partos.length + desmames.length + manejos.length + rondas.length + movs.length +
+    estoqueDia.length + financeiroDia.length + pesagensLote.length === 0 && !leiteHoje
+
+  return (
+    <>
+      {nada && (
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          Nenhum lançamento registrado hoje ainda — o fechamento vai se preenchendo conforme o dia.
+        </p>
+      )}
+      {pesagensLote.length > 0 && (
+        <Secao titulo="Pesagens de lote do dia">
+          <TabelaRelatorio
+            cab={['Lote', 'Peso médio']}
+            linhas={pesagensLote.map((x) => [x.lote.nome, `${fmtNum1(x.pes[x.pes.length - 1].peso)} kg`])}
+          />
+        </Secao>
+      )}
+      {leiteHoje && (
+        <Secao titulo="Leite do dia">
+          <LinhaDado rotulo="Produção no tanque" valor={`${fmtNum(leiteHoje.litros)} L`} />
+        </Secao>
+      )}
+      {partos.length > 0 && (
+        <Secao titulo="Partos do dia">
+          <TabelaRelatorio
+            cab={['Matriz', 'Bezerro(a)', 'Sexo', 'Peso']}
+            linhas={partos.map((p) => [p.matrizBrinco, p.bezerroBrinco, p.sexo, fmtKg1(p.pesoNascer)])}
+          />
+        </Secao>
+      )}
+      {desmames.length > 0 && (
+        <Secao titulo="Desmames / apartações do dia">
+          <TabelaRelatorio
+            cab={['Bezerro(a)', 'Peso', 'Idade (dias)']}
+            linhas={desmames.map((d) => [d.bezerroBrinco, fmtKg1(d.peso), d.idadeDias])}
+          />
+        </Secao>
+      )}
+      {manejos.length > 0 && (
+        <Secao titulo="Manejos sanitários do dia">
+          <TabelaRelatorio
+            cab={['Manejo', 'Alvo', 'Animais', 'Responsável']}
+            linhas={manejos.map((m) => [m.produto, m.alvo, fmtNum(m.qtdAnimais), m.responsavel])}
+          />
+        </Secao>
+      )}
+      {rondas.length > 0 && (
+        <Secao titulo="Rondas do dia">
+          <TabelaRelatorio
+            cab={['Pasto', 'Responsável', 'Ocorrências']}
+            linhas={rondas.map((r) => [
+              state.pastos.find((p) => p.id === r.pastoId)?.nome ?? r.pastoId,
+              r.responsavel,
+              r.ocorrencias.length,
+            ])}
+          />
+        </Secao>
+      )}
+      {movs.length > 0 && (
+        <Secao titulo="Movimentações do rebanho">
+          <TabelaRelatorio
+            cab={['Tipo', 'Brinco/lote', 'Qtd', 'Por']}
+            linhas={movs.map((m) => [m.tipo, m.brinco, m.quantidade, nomeMembro(state, m.responsavelId)])}
+          />
+        </Secao>
+      )}
+      {estoqueDia.length > 0 && (
+        <Secao titulo="Estoque do dia">
+          <TabelaRelatorio
+            cab={['Insumo', 'Tipo', 'Qtd', 'Por']}
+            linhas={estoqueDia.map((m) => [
+              state.estoque.find((i) => i.id === m.itemId)?.nome ?? m.itemId,
+              m.tipo,
+              fmtNum(m.quantidade),
+              nomeMembro(state, m.responsavelId),
+            ])}
+          />
+        </Secao>
+      )}
+      {financeiroDia.length > 0 && (
+        <Secao titulo="Financeiro do dia">
+          <TabelaRelatorio
+            cab={['Descrição', 'Tipo', 'Valor', 'Situação']}
+            linhas={financeiroDia.map((l) => [
+              l.descricao,
+              l.tipo,
+              fmtBRL(l.valor),
+              l.pagamento ? 'pago/recebido' : 'em aberto',
+            ])}
+          />
+        </Secao>
+      )}
+      <Secao titulo="Conferências pendentes">
+        {confPendentes.length === 0 ? (
+          <LinhaDado rotulo="Lançamentos do campo aguardando visto" valor="nenhum" />
+        ) : (
+          <TabelaRelatorio
+            cab={['Tipo', 'Lançamento', 'Por']}
+            linhas={confPendentes.map((c) => [c.tipo, c.resumo, nomeMembro(state, c.responsavelId)])}
+          />
+        )}
+      </Secao>
+    </>
+  )
+}
+
 const TITULOS = {
+  dia: 'Fechamento do Dia',
   safra: 'Relatório da Safra',
   inventario: 'Inventário do Rebanho',
   financeiro: 'Resumo Financeiro',
@@ -232,7 +359,11 @@ const TITULOS = {
 
 export default function Relatorios() {
   const state = useStore()
-  const [tipo, setTipo] = useState<keyof typeof TITULOS>('safra')
+  const [searchParams] = useSearchParams()
+  const relParam = searchParams.get('rel')
+  const [tipo, setTipo] = useState<keyof typeof TITULOS>(
+    relParam && relParam in TITULOS ? (relParam as keyof typeof TITULOS) : 'safra',
+  )
   const info = PERFIL_INFO[state.perfil]
 
   return (
@@ -279,6 +410,7 @@ export default function Relatorios() {
           </div>
         </div>
 
+        {tipo === 'dia' && <RelatorioDia state={state} />}
         {tipo === 'safra' && <RelatorioSafra state={state} />}
         {tipo === 'inventario' && <RelatorioInventario state={state} />}
         {tipo === 'financeiro' && <RelatorioFinanceiro state={state} />}

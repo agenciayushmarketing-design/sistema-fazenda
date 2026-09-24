@@ -16,7 +16,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { toast } from '@/components/ui/toast'
 import { useTableSort, usePagination } from '@/hooks/table'
 import { CATEGORIA_LABEL, type Animal, type Categoria, type Movimentacao } from '@/data/types'
-import { inventarioPorCategoria, ativos } from '@/lib/metrics'
+import { inventarioPorCategoria, ativos, nomeMembro } from '@/lib/metrics'
 import { fmtBRL, fmtDate, fmtIdade, fmtKg, fmtNum, hojeISO, idadeMeses } from '@/lib/format'
 import { addDays } from '@/data/seed'
 
@@ -218,6 +218,7 @@ export default function Rebanho() {
                   <SortableHead label="Qtd" sortKey="qtd" sort={movSort.sort} onToggle={movSort.toggle} align="right" />
                   <TableHead>Origem</TableHead>
                   <TableHead>Destino</TableHead>
+                  <TableHead>Por</TableHead>
                   <TableHead>Obs.</TableHead>
                 </TableRow>
               </TableHeader>
@@ -243,6 +244,7 @@ export default function Rebanho() {
                     <TableCell className="tnum text-right">{m.quantidade}</TableCell>
                     <TableCell className="text-muted-foreground">{m.origem ?? '—'}</TableCell>
                     <TableCell className="text-muted-foreground">{m.destino ?? '—'}</TableCell>
+                    <TableCell className="text-muted-foreground">{nomeMembro(state, m.responsavelId)}</TableCell>
                     <TableCell className="max-w-[220px] truncate text-muted-foreground">{m.obs ?? '—'}</TableCell>
                   </TableRow>
                 ))}

@@ -29,20 +29,40 @@ function pagina(importar: () => Promise<{ default: ComponentType }>) {
   })
 }
 
-const Dashboard = pagina(() => import('@/pages/Dashboard'))
-const Rebanho = pagina(() => import('@/pages/Rebanho'))
-const FichaAnimal = pagina(() => import('@/pages/FichaAnimal'))
-const Cria = pagina(() => import('@/pages/Cria'))
-const Recria = pagina(() => import('@/pages/Recria'))
-const Reproducao = pagina(() => import('@/pages/Reproducao'))
-const Sanitario = pagina(() => import('@/pages/Sanitario'))
-const Estoque = pagina(() => import('@/pages/Estoque'))
-const Compras = pagina(() => import('@/pages/Compras'))
-const Financeiro = pagina(() => import('@/pages/Financeiro'))
-const Maquinas = pagina(() => import('@/pages/Maquinas'))
-const OrdensServico = pagina(() => import('@/pages/OrdensServico'))
-const Leite = pagina(() => import('@/pages/Leite'))
-const Relatorios = pagina(() => import('@/pages/Relatorios'))
+// importadores centralizados: alimentam as rotas E o pré-download p/ modo offline
+const importadores = {
+  Dashboard: () => import('@/pages/Dashboard'),
+  Rebanho: () => import('@/pages/Rebanho'),
+  FichaAnimal: () => import('@/pages/FichaAnimal'),
+  Cria: () => import('@/pages/Cria'),
+  Recria: () => import('@/pages/Recria'),
+  Reproducao: () => import('@/pages/Reproducao'),
+  Sanitario: () => import('@/pages/Sanitario'),
+  Estoque: () => import('@/pages/Estoque'),
+  Compras: () => import('@/pages/Compras'),
+  Financeiro: () => import('@/pages/Financeiro'),
+  Maquinas: () => import('@/pages/Maquinas'),
+  OrdensServico: () => import('@/pages/OrdensServico'),
+  Leite: () => import('@/pages/Leite'),
+  Equipe: () => import('@/pages/Equipe'),
+  Relatorios: () => import('@/pages/Relatorios'),
+}
+
+const Dashboard = pagina(importadores.Dashboard)
+const Rebanho = pagina(importadores.Rebanho)
+const FichaAnimal = pagina(importadores.FichaAnimal)
+const Cria = pagina(importadores.Cria)
+const Recria = pagina(importadores.Recria)
+const Reproducao = pagina(importadores.Reproducao)
+const Sanitario = pagina(importadores.Sanitario)
+const Estoque = pagina(importadores.Estoque)
+const Compras = pagina(importadores.Compras)
+const Financeiro = pagina(importadores.Financeiro)
+const Maquinas = pagina(importadores.Maquinas)
+const OrdensServico = pagina(importadores.OrdensServico)
+const Leite = pagina(importadores.Leite)
+const Equipe = pagina(importadores.Equipe)
+const Relatorios = pagina(importadores.Relatorios)
 
 const router = createHashRouter([
   {
@@ -62,6 +82,7 @@ const router = createHashRouter([
       { path: '/financeiro', element: <Financeiro /> },
       { path: '/maquinas', element: <Maquinas /> },
       { path: '/os', element: <OrdensServico /> },
+      { path: '/equipe', element: <Equipe /> },
       { path: '/relatorios', element: <Relatorios /> },
     ],
   },
@@ -78,4 +99,38 @@ try {
   sessionStorage.removeItem('fazenda-demo-boot-retry')
 } catch {
   /* sem storage */
+}
+
+// PWA: com o service worker, a demo instala no celular e abre sem sinal —
+// os dados já vivem no aparelho, então TUDO funciona offline de verdade
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {
+      /* sem service worker, a demo segue funcionando online */
+    })
+
+    // aquece o modo offline já na PRIMEIRA visita:
+    // 1) guarda no cache os arquivos que carregaram antes do SW assumir;
+    // 2) pré-baixa todas as telas (também deixa a navegação instantânea).
+    navigator.serviceWorker.ready.then(async () => {
+      try {
+        const cache = await caches.open('fazenda-demo-v1')
+        const jaCarregados = performance
+          .getEntriesByType('resource')
+          .map((e) => e.name)
+          .filter((u) => u.startsWith(location.origin) && u.includes('/assets/'))
+        const extras = ['./manifest.webmanifest', './icons/icone-192.png', './icons/icone-512.png']
+        await Promise.allSettled(
+          [...new Set(jaCarregados), ...extras].map((u) => cache.add(u)),
+        )
+      } catch {
+        /* sem Cache API, segue online */
+      }
+      setTimeout(() => {
+        Object.values(importadores).forEach((importar) => {
+          importar().catch(() => {})
+        })
+      }, 2500)
+    })
+  })
 }

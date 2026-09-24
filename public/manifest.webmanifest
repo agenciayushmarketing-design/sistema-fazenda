@@ -1,0 +1,15 @@
+{
+  "name": "Gestão de Rebanho — Demonstração",
+  "short_name": "Fazenda Demo",
+  "description": "Sistema de gestão pecuária — demonstração com dados fictícios, funciona sem internet.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f9f9f7",
+  "theme_color": "#2a78d6",
+  "lang": "pt-BR",
+  "icons": [
+    { "src": "icons/icone-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icone-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

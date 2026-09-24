@@ -14,6 +14,7 @@ import type {
   Animal,
   Categoria,
   CentroCusto,
+  Conferencia,
   ConfigFazenda,
   Desmame,
   DiagnosticoGestacao,
@@ -24,6 +25,7 @@ import type {
   LoteRecria,
   ManejoSanitario,
   Maquina,
+  MembroEquipe,
   MovEstoque,
   Movimentacao,
   OrdemServico,
@@ -81,6 +83,18 @@ interface PerfilParams {
   nomePerfil: string
   fazenda: { nome: string; areaHa: number }
   config: ConfigFazenda
+  equipe: MembroEquipe[]
+  usuarioAtualId: string
+  /** lançamentos do campo aguardando (ou já com) o visto do escritório */
+  conferencias: {
+    dias: number
+    hora: string
+    tipo: string
+    resumo: string
+    responsavelId: string
+    status: Conferencia['status']
+    conferidoPorId?: string
+  }[]
   seedRandom: number
   inventario: {
     vaca: number
@@ -211,6 +225,21 @@ const PERFIL_CICLO: PerfilParams = {
   nomePerfil: 'Ciclo completo',
   fazenda: { nome: 'Fazenda Santa Helena', areaHa: 800 },
   config: { toleranciaIPMeses: 18, diasVaziaDescarte: 45 },
+  equipe: [
+    { id: 'EQ-1', nome: 'Mateus (proprietário)', papel: 'gerente' },
+    { id: 'EQ-2', nome: 'Dona Cida', papel: 'escritorio' },
+    { id: 'EQ-3', nome: 'Carlos Mendes', papel: 'campo' },
+    { id: 'EQ-4', nome: 'Zé Carlos', papel: 'campo' },
+    { id: 'EQ-5', nome: 'João Pedro', papel: 'campo' },
+  ],
+  usuarioAtualId: 'EQ-1',
+  conferencias: [
+    { dias: 0, hora: '07:40', tipo: 'Pesagem de lote', resumo: 'Recria Machos 25/26 — 248,5 kg médio', responsavelId: 'EQ-5', status: 'pendente' },
+    { dias: 0, hora: '06:55', tipo: 'Ronda sanitária', resumo: 'GR-023 apartado em observação (Retiro Santa Rita)', responsavelId: 'EQ-4', status: 'pendente' },
+    { dias: -2, hora: '16:10', tipo: 'Saída de estoque', resumo: 'Sal mineral 80 P — 3.800 kg nos cochos', responsavelId: 'EQ-4', status: 'pendente' },
+    { dias: -3, hora: '08:20', tipo: 'Manejo em lote', resumo: 'Clostridiose nos bezerros da safra — 330 doses', responsavelId: 'EQ-3', status: 'aprovado', conferidoPorId: 'EQ-2' },
+    { dias: -5, hora: '17:05', tipo: 'Pesagem de lote', resumo: 'Garrotes 24/25 — 336,2 kg médio', responsavelId: 'EQ-5', status: 'aprovado', conferidoPorId: 'EQ-2' },
+  ],
   seedRandom: 20260814,
   inventario: { vaca: 420, vacaLeite: 0, touro: 15, novilha_24: 85, boi_terminacao: 88 },
   pastos: [
@@ -418,6 +447,17 @@ const PERFIL_CRIA: PerfilParams = {
   nomePerfil: 'Cria — 150 matrizes',
   fazenda: { nome: 'Sítio Boa Esperança', areaHa: 180 },
   config: { toleranciaIPMeses: 18, diasVaziaDescarte: 45 },
+  equipe: [
+    { id: 'EQ-1', nome: 'Seu Osvaldo (proprietário)', papel: 'gerente' },
+    { id: 'EQ-2', nome: 'Dona Marta', papel: 'escritorio' },
+    { id: 'EQ-3', nome: 'João Batista', papel: 'campo' },
+  ],
+  usuarioAtualId: 'EQ-1',
+  conferencias: [
+    { dias: 0, hora: '07:15', tipo: 'Ronda sanitária', resumo: 'BZ-021 com diarreia, separado com a mãe', responsavelId: 'EQ-3', status: 'pendente' },
+    { dias: -2, hora: '16:30', tipo: 'Saída de estoque', resumo: 'Sal mineral 65 P — 1.100 kg nos cochos', responsavelId: 'EQ-3', status: 'pendente' },
+    { dias: -4, hora: '08:00', tipo: 'Diagnóstico de gestação', resumo: 'DG30 da IATF — 70 prenhas de 135', responsavelId: 'EQ-3', status: 'aprovado', conferidoPorId: 'EQ-2' },
+  ],
   seedRandom: 20260901,
   inventario: { vaca: 150, vacaLeite: 0, touro: 4, novilha_24: 14, boi_terminacao: 0 },
   novilhasJovens: { qtd: 18, loteId: 'L-NOV', prefixo: 'NJ' },
@@ -562,6 +602,20 @@ const PERFIL_CORTE_LEITE: PerfilParams = {
   nomePerfil: 'Corte & Leite',
   fazenda: { nome: 'Fazenda Dois Córregos', areaHa: 420 },
   config: { toleranciaIPMeses: 18, diasVaziaDescarte: 45 },
+  equipe: [
+    { id: 'EQ-1', nome: 'Vilmar (proprietário)', papel: 'gerente' },
+    { id: 'EQ-2', nome: 'Ana Paula', papel: 'escritorio' },
+    { id: 'EQ-3', nome: 'Roberto Lima', papel: 'campo' },
+    { id: 'EQ-4', nome: 'Zé Carlos', papel: 'campo' },
+    { id: 'EQ-5', nome: 'Equipe do leite', papel: 'campo' },
+  ],
+  usuarioAtualId: 'EQ-1',
+  conferencias: [
+    { dias: 0, hora: '06:20', tipo: 'Produção de leite', resumo: 'Tanque do dia — 716 L', responsavelId: 'EQ-5', status: 'pendente' },
+    { dias: 0, hora: '07:50', tipo: 'Ronda sanitária', resumo: 'L-0012 suspeita de mastite, leite descartado', responsavelId: 'EQ-5', status: 'pendente' },
+    { dias: -1, hora: '15:40', tipo: 'Manutenção', resumo: 'Troca da bomba hidráulica — Trator MF 4275', responsavelId: 'EQ-4', status: 'pendente' },
+    { dias: -3, hora: '09:10', tipo: 'Manejo em lote', resumo: 'Vermifugação do rebanho geral — 512 animais', responsavelId: 'EQ-3', status: 'aprovado', conferidoPorId: 'EQ-2' },
+  ],
   seedRandom: 20260922,
   inventario: { vaca: 150, vacaLeite: 60, touro: 8, novilha_24: 25, boi_terminacao: 40 },
   pastos: [
@@ -841,7 +895,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
   ciclo_completo: {
     nome: 'Ciclo completo',
     descricao: 'Nelore, 800 ha, 1.200 cabeças',
-    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/estoque', '/compras', '/financeiro', '/relatorios'],
+    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/estoque', '/compras', '/financeiro', '/equipe', '/relatorios'],
     boasVindas:
       'Operação de ciclo completo: da cria à terminação, com estoque, compras e custo por arroba amarrados de ponta a ponta.',
     destaques: [
@@ -856,7 +910,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     descricao: 'Cria pura: partos, IATF, IP e apartação',
     boasVindas:
       'Pequena propriedade de cria com tudo que importa na produção de bezerros — sem módulos que você não usa.',
-    modulos: ['/', '/rebanho', '/cria', '/reproducao', '/sanitario', '/estoque', '/relatorios'],
+    modulos: ['/', '/rebanho', '/cria', '/reproducao', '/sanitario', '/estoque', '/equipe', '/relatorios'],
     destaques: [
       { rotulo: 'Partos e desmames da safra', link: '/cria' },
       { rotulo: 'Previsão de apartação aos 8 meses', link: '/cria?tab=apartacao' },
@@ -871,7 +925,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     descricao: 'Completo: financeiro, máquinas, OS e leite',
     boasVindas:
       'Fazenda mista de corte e leite com a gestão completa: rebanho, reprodução, financeiro, frota de máquinas e ordens de serviço.',
-    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/leite', '/estoque', '/compras', '/financeiro', '/maquinas', '/os', '/relatorios'],
+    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/leite', '/estoque', '/compras', '/financeiro', '/maquinas', '/os', '/equipe', '/relatorios'],
     destaques: [
       { rotulo: 'Fluxo de caixa e contas a pagar', link: '/financeiro' },
       { rotulo: 'Produção de leite diária', link: '/leite' },
@@ -926,6 +980,12 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
   const P = PERFIS[perfil]
   const rng = mulberry32(P.seedRandom)
 
+  // responsáveis padrão por papel (carimbo dos lançamentos do seed)
+  const equipe: MembroEquipe[] = P.equipe.map((m) => ({ ...m }))
+  const campoId = equipe.find((m) => m.papel === 'campo')?.id ?? equipe[0].id
+  const escritorioId = equipe.find((m) => m.papel === 'escritorio')?.id ?? equipe[0].id
+  const gerenteId = equipe.find((m) => m.papel === 'gerente')?.id ?? equipe[0].id
+
   const pastos: Pasto[] = P.pastos.map((p) => ({ ...p }))
   const lotes: Lote[] = [
     ...P.lotes.map((l) => ({ ...l })),
@@ -936,7 +996,11 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
   const movimentacoes: Movimentacao[] = []
   let movSeq = 1
   const mov = (m: Omit<Movimentacao, 'id'>) => {
-    movimentacoes.push({ id: `MV-${String(movSeq++).padStart(4, '0')}`, ...m })
+    movimentacoes.push({
+      id: `MV-${String(movSeq++).padStart(4, '0')}`,
+      responsavelId: m.responsavelId ?? campoId,
+      ...m,
+    })
   }
 
   // ---- Touros ----
@@ -1467,7 +1531,11 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
   const movEstoque: MovEstoque[] = []
   let meSeq = 0
   const mePush = (m: Omit<MovEstoque, 'id'>) => {
-    movEstoque.push({ id: `ME-${String(++meSeq).padStart(3, '0')}`, ...m })
+    movEstoque.push({
+      id: `ME-${String(++meSeq).padStart(3, '0')}`,
+      responsavelId: m.tipo === 'entrada' ? escritorioId : campoId,
+      ...m,
+    })
   }
   for (const ped of pedidos) {
     if (ped.status !== 'recebido' || !ped.dataRecebimento) continue
@@ -1577,6 +1645,18 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     notas: o.notas.map((n) => ({ data: addDays(today, n.dias), texto: n.texto })),
   }))
 
+  // ---- Conferências (campo lança → escritório dá o visto) ----
+  const conferencias: Conferencia[] = P.conferencias.map((c, i) => ({
+    id: `CF-${i + 1}`,
+    tipo: c.tipo,
+    resumo: c.resumo,
+    responsavelId: c.responsavelId,
+    lancadoEm: `${addDays(today, c.dias)}T${c.hora}:00`,
+    status: c.status,
+    conferidoPorId: c.conferidoPorId,
+    conferidoEm: c.conferidoPorId ? `${addDays(today, c.dias)}T18:00:00` : undefined,
+  }))
+
   // ---- Sanitário: manejos em lote + rondas ----
   const manejosSanitarios: ManejoSanitario[] = P.manejos.map((m, i) => ({
     id: `MS-${i + 1}`,
@@ -1615,7 +1695,11 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
   const lancamentos: Lancamento[] = []
   let lcSeq = 0
   const lcPush = (l: Omit<Lancamento, 'id'>) => {
-    lancamentos.push({ id: `LC-${String(++lcSeq).padStart(3, '0')}`, ...l })
+    lancamentos.push({
+      id: `LC-${String(++lcSeq).padStart(3, '0')}`,
+      responsavelId: escritorioId,
+      ...l,
+    })
   }
   // despesas: pedidos recebidos (1 lançamento por pedido, pago no recebimento)
   for (const ped of pedidos) {
@@ -1714,6 +1798,9 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     perfil,
     geradoEm: today,
     config: { ...P.config },
+    equipe,
+    usuarioAtualId: P.usuarioAtualId,
+    conferencias,
     fazenda: {
       nome: P.fazenda.nome,
       areaHa: P.fazenda.areaHa,

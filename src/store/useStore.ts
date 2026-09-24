@@ -6,8 +6,10 @@ import { CATEGORIA_LABEL } from '@/data/types'
 import type {
   Animal,
   Categoria,
+  Conferencia,
   ConfigFazenda,
   Desmame,
+  MembroEquipe,
   DiagnosticoGestacao,
   Lancamento,
   ManejoSanitario,
@@ -29,11 +31,26 @@ import type {
 } from '@/data/types'
 
 const STORAGE_KEY = 'fazenda-santa-helena-demo'
+const VERSAO_DEMO = 6
+const chaveFazenda = (p: PerfilDemo) => `fazenda-demo-salva-${p}`
+
+/** Só os dados (sem as actions) — para salvar o snapshot de cada fazenda */
+function extrairDados(estado: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(estado).filter(([, v]) => typeof v !== 'function'))
+}
 
 interface Actions {
   resetDemo: () => void
+  /** Troca a fazenda ativa preservando os dados de cada uma (snapshot em localStorage) */
   setPerfil: (perfil: PerfilDemo) => void
   updateConfig: (patch: Partial<ConfigFazenda>) => void
+
+  // Equipe e conferência
+  setUsuarioAtual: (id: string) => void
+  addMembroEquipe: (m: Omit<MembroEquipe, 'id'>) => void
+  removeMembroEquipe: (id: string) => { ok: boolean; erro?: string }
+  aprovarConferencia: (id: string) => void
+  devolverConferencia: (id: string) => void
 
   // Rebanho
   addAnimal: (a: Animal, mov?: Omit<Movimentacao, 'id'>) => void
@@ -136,6 +153,23 @@ export type Store = SeedData & Actions
 let seq = 1000
 const nid = (prefix: string) => `${prefix}-${++seq}`
 
+/** Se quem está operando é do campo, o lançamento entra na fila de conferência */
+function comConferencia(s: Store, tipo: string, resumo: string): Conferencia[] {
+  const usuario = s.equipe.find((m) => m.id === s.usuarioAtualId)
+  if (!usuario || usuario.papel !== 'campo') return s.conferencias
+  return [
+    ...s.conferencias,
+    {
+      id: nid('CF'),
+      tipo,
+      resumo,
+      responsavelId: usuario.id,
+      lancadoEm: new Date().toISOString(),
+      status: 'pendente',
+    },
+  ]
+}
+
 export const useStore = create<Store>()(
   persist(
     (set, get) => ({
@@ -143,17 +177,69 @@ export const useStore = create<Store>()(
 
       resetDemo: () => {
         const perfil = get().perfil
+        try {
+          localStorage.removeItem(chaveFazenda(perfil))
+        } catch { /* sem storage */ }
         localStorage.removeItem(STORAGE_KEY)
         set(buildSeed(perfil), false)
       },
 
       setPerfil: (perfil) => {
-        localStorage.removeItem(STORAGE_KEY)
-        set(buildSeed(perfil), false)
+        const s = get()
+        // guarda a fazenda atual antes de sair dela
+        try {
+          localStorage.setItem(
+            chaveFazenda(s.perfil),
+            JSON.stringify({ versao: VERSAO_DEMO, dados: extrairDados(s as unknown as Record<string, unknown>) }),
+          )
+        } catch { /* sem espaço: a troca segue, só não preserva */ }
+        // carrega a fazenda de destino (snapshot salvo ou seed novo)
+        let dados: SeedData | null = null
+        try {
+          const bruto = localStorage.getItem(chaveFazenda(perfil))
+          if (bruto) {
+            const salvo = JSON.parse(bruto)
+            if (salvo?.versao === VERSAO_DEMO && salvo?.dados?.perfil === perfil) dados = salvo.dados
+          }
+        } catch { /* snapshot inválido → seed */ }
+        set(dados ?? buildSeed(perfil), false)
       },
 
       updateConfig: (patch) =>
         set((s) => ({ config: { ...s.config, ...patch } })),
+
+      setUsuarioAtual: (id) =>
+        set((s) => (s.equipe.some((m) => m.id === id) ? { usuarioAtualId: id } : s)),
+
+      addMembroEquipe: (m) =>
+        set((s) => ({ equipe: [...s.equipe, { id: nid('EQ'), ...m }] })),
+
+      removeMembroEquipe: (id) => {
+        const s = get()
+        if (id === s.usuarioAtualId) {
+          return { ok: false, erro: 'Não dá para remover quem está operando o sistema agora.' }
+        }
+        set({ equipe: s.equipe.filter((m) => m.id !== id) })
+        return { ok: true }
+      },
+
+      aprovarConferencia: (id) =>
+        set((s) => ({
+          conferencias: s.conferencias.map((c) =>
+            c.id === id && c.status === 'pendente'
+              ? { ...c, status: 'aprovado' as const, conferidoPorId: s.usuarioAtualId, conferidoEm: new Date().toISOString() }
+              : c,
+          ),
+        })),
+
+      devolverConferencia: (id) =>
+        set((s) => ({
+          conferencias: s.conferencias.map((c) =>
+            c.id === id && c.status === 'pendente'
+              ? { ...c, status: 'devolvido' as const, conferidoPorId: s.usuarioAtualId, conferidoEm: new Date().toISOString() }
+              : c,
+          ),
+        })),
 
       addAnimal: (a, movi) =>
         set((s) => ({
@@ -188,8 +274,14 @@ export const useStore = create<Store>()(
                 quantidade: 1,
                 origem: animal.loteId,
                 obs: 'Registrado manualmente',
+                responsavelId: s.usuarioAtualId,
               },
             ],
+            conferencias: comConferencia(
+              s,
+              motivo === 'morte' ? 'Morte' : 'Venda',
+              `${animal.brinco} — saída do rebanho (${motivo})`,
+            ),
             fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - 1 },
           }
         }),
@@ -205,10 +297,20 @@ export const useStore = create<Store>()(
                 }
               : a,
           ),
+          conferencias: comConferencia(
+            s,
+            'Pesagem',
+            `${s.animais.find((a) => a.id === id)?.brinco ?? id} — ${pes.peso} kg`,
+          ),
         })),
 
       addMovimentacao: (m) =>
-        set((s) => ({ movimentacoes: [...s.movimentacoes, { id: nid('MV'), ...m }] })),
+        set((s) => ({
+          movimentacoes: [
+            ...s.movimentacoes,
+            { id: nid('MV'), responsavelId: s.usuarioAtualId, ...m },
+          ],
+        })),
 
       venderAnimais: ({ categoria, qtd, valorTotal, comprador, vencimento }) => {
         const s = get()
@@ -236,8 +338,14 @@ export const useStore = create<Store>()(
               quantidade: qtd,
               origem: 'Rebanho',
               obs: comprador ? `Comprador: ${comprador}` : 'Venda em lote',
+              responsavelId: s.usuarioAtualId,
             },
           ],
+          conferencias: comConferencia(
+            s,
+            'Venda de animais',
+            `${qtd} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) — R$ ${valorTotal.toLocaleString('pt-BR')}`,
+          ),
           lancamentos:
             valorTotal > 0
               ? [
@@ -302,8 +410,14 @@ export const useStore = create<Store>()(
                 quantidade: qtd,
                 destino: loteNome,
                 obs: vendedor ? `Vendedor: ${vendedor}` : 'Compra em lote',
+                responsavelId: s.usuarioAtualId,
               },
             ],
+            conferencias: comConferencia(
+              s,
+              'Compra de animais',
+              `${qtd} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) — R$ ${valorTotal.toLocaleString('pt-BR')}`,
+            ),
             lancamentos:
               valorTotal > 0
                 ? [
@@ -356,8 +470,10 @@ export const useStore = create<Store>()(
                 quantidade: 1,
                 destino: 'Rebanho de cria',
                 obs: `Matriz ${p.matrizBrinco}`,
+                responsavelId: s.usuarioAtualId,
               },
             ],
+            conferencias: comConferencia(s, 'Parto', `Matriz ${p.matrizBrinco} pariu ${p.bezerroBrinco} (${p.pesoNascer} kg)`),
             fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas + 1 },
           }
         }),
@@ -417,8 +533,10 @@ export const useStore = create<Store>()(
               quantidade: 1,
               origem: 'Rebanho de cria',
               destino: loteNome,
+              responsavelId: s.usuarioAtualId,
             },
           ],
+          conferencias: comConferencia(s, 'Desmame', `${d.bezerroBrinco} desmamado com ${d.peso} kg → ${loteNome}`),
         })
         return { ok: true }
       },
@@ -494,7 +612,12 @@ export const useStore = create<Store>()(
             }
             return { ...a, status: 'vendido' as const }
           }),
-          movimentacoes: [...s.movimentacoes, ...movs],
+          movimentacoes: [...s.movimentacoes, ...movs.map((m) => ({ ...m, responsavelId: s.usuarioAtualId }))],
+          conferencias: comConferencia(
+            s,
+            'Apartação',
+            `${qtd} bezerro(s) apartado(s) — ${destino === 'recria' ? loteNome : 'venda'}`,
+          ),
           lancamentos:
             destino === 'venda'
               ? [
@@ -523,6 +646,11 @@ export const useStore = create<Store>()(
         set((s) => ({
           lotesRecria: s.lotesRecria.map((l) =>
             l.id === loteId ? { ...l, pesagens: [...l.pesagens, pes] } : l,
+          ),
+          conferencias: comConferencia(
+            s,
+            'Pesagem de lote',
+            `${s.lotesRecria.find((l) => l.id === loteId)?.nome ?? loteId} — ${pes.peso} kg médio`,
           ),
         })),
 
@@ -556,7 +684,14 @@ export const useStore = create<Store>()(
       },
 
       addDiagnostico: (d) =>
-        set((s) => ({ diagnosticos: [...s.diagnosticos, { id: nid('DG'), ...d }] })),
+        set((s) => ({
+          diagnosticos: [...s.diagnosticos, { id: nid('DG'), ...d }],
+          conferencias: comConferencia(
+            s,
+            'Diagnóstico de gestação',
+            `${d.matrizBrinco}: ${d.resultado}${d.origemPrenhez ? ` (${d.origemPrenhez})` : ''}`,
+          ),
+        })),
 
       updateDiagnostico: (id, patch) =>
         set((s) => ({
@@ -592,9 +727,17 @@ export const useStore = create<Store>()(
           }
         }
         set({
-          movEstoque: [...s.movEstoque, { id: nid('ME'), tipo: 'saida' as const, ...m }],
+          movEstoque: [
+            ...s.movEstoque,
+            { id: nid('ME'), tipo: 'saida' as const, responsavelId: s.usuarioAtualId, ...m },
+          ],
           estoque: s.estoque.map((it) =>
             it.id === m.itemId ? { ...it, saldo: it.saldo - m.quantidade } : it,
+          ),
+          conferencias: comConferencia(
+            s,
+            'Saída de estoque',
+            `${item.nome} — ${m.quantidade.toLocaleString('pt-BR')} ${item.unidade} (${m.loteDestino ?? 'consumo'})`,
           ),
         })
         return { ok: true }
@@ -669,7 +812,17 @@ export const useStore = create<Store>()(
         }),
 
       addLancamento: (l) =>
-        set((s) => ({ lancamentos: [...s.lancamentos, { id: nid('LC'), ...l }] })),
+        set((s) => ({
+          lancamentos: [
+            ...s.lancamentos,
+            { id: nid('LC'), responsavelId: s.usuarioAtualId, ...l },
+          ],
+          conferencias: comConferencia(
+            s,
+            l.tipo === 'receita' ? 'Receita' : 'Despesa',
+            `${l.descricao} — R$ ${l.valor.toLocaleString('pt-BR')}`,
+          ),
+        })),
 
       pagarLancamento: (id) =>
         set((s) => ({
@@ -758,6 +911,7 @@ export const useStore = create<Store>()(
           producaoLeite: [...s.producaoLeite.filter((x) => x.data !== p.data), p].sort((a, b) =>
             a.data.localeCompare(b.data),
           ),
+          conferencias: comConferencia(s, 'Produção de leite', `Tanque do dia — ${p.litros.toLocaleString('pt-BR')} L`),
         })),
 
       registrarManejoLote: ({ data, tipo, itemEstoqueId, loteId, dosePorAnimal, responsavel, obs }) => {
@@ -808,10 +962,16 @@ export const useStore = create<Store>()(
               quantidade: consumo,
               loteDestino: alvoNome,
               obs: `${tipoLabel} em lote — ${alvo.length} animais`,
+              responsavelId: s.usuarioAtualId,
             },
           ],
           estoque: s.estoque.map((i) =>
             i.id === itemEstoqueId ? { ...i, saldo: Math.round((i.saldo - consumo) * 100) / 100 } : i,
+          ),
+          conferencias: comConferencia(
+            s,
+            'Manejo em lote',
+            `${tipoLabel} de ${alvo.length} animais (${item.nome}) — ${alvoNome}`,
           ),
         })
         return { ok: true, qtdAnimais: alvo.length }
@@ -866,6 +1026,11 @@ export const useStore = create<Store>()(
           rondas: [...s.rondas, { id: nid('RS'), ...r }],
           animais,
           movimentacoes,
+          conferencias: comConferencia(
+            s,
+            'Ronda sanitária',
+            `${s.pastos.find((p) => p.id === r.pastoId)?.nome ?? r.pastoId} — ${r.ocorrencias.length} ocorrência(s)`,
+          ),
           fazenda: baixas > 0 ? { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - baixas } : s.fazenda,
         })
         return { ok: true }
@@ -885,7 +1050,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: STORAGE_KEY,
-      version: 5, // v5: config da fazenda (tolerância de IP + dias vazia p/ descarte)
+      version: VERSAO_DEMO, // v6: equipe, conferências e multi-fazenda
       // dados persistidos de versões anteriores não têm os novos módulos/perfis → re-semeia
       migrate: () => buildSeed('ciclo_completo') as unknown as Store,
     },

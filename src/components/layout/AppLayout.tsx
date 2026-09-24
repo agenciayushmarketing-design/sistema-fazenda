@@ -17,6 +17,8 @@ import {
   Menu,
   Stethoscope,
   FileText,
+  Users,
+  WifiOff,
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -41,6 +43,7 @@ const NAV = [
   { to: '/financeiro', label: 'Financeiro', icon: Wallet },
   { to: '/maquinas', label: 'Máquinas', icon: Tractor },
   { to: '/os', label: 'Ordens de serviço', icon: ClipboardList },
+  { to: '/equipe', label: 'Equipe', icon: Users },
   { to: '/relatorios', label: 'Relatórios', icon: FileText },
 ]
 
@@ -48,7 +51,6 @@ const NAV = [
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const fazenda = useStore((s) => s.fazenda)
   const perfil = useStore((s) => s.perfil)
-  const [perfilPendente, setPerfilPendente] = useState<PerfilDemo | null>(null)
   const setPerfil = useStore((s) => s.setPerfil)
   const navigate = useNavigate()
 
@@ -65,16 +67,21 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
       <div className="border-b px-3 py-2">
         <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Perfil da demonstração
+          Fazenda ativa
         </div>
         <Select
           value={perfil}
           onChange={(e) => {
             const novo = e.target.value as PerfilDemo
-            if (novo !== perfil) setPerfilPendente(novo)
+            if (novo === perfil) return
+            const anterior = PERFIL_INFO[perfil].nome
+            setPerfil(novo)
+            navigate('/')
+            onNavigate?.()
+            toast(`Fazenda "${PERFIL_INFO[novo].nome}" carregada — os dados de "${anterior}" ficaram salvos.`)
           }}
           className="h-7 text-xs"
-          aria-label="Perfil da demonstração"
+          aria-label="Fazenda ativa"
         >
           {(Object.keys(PERFIL_INFO) as PerfilDemo[]).map((p) => (
             <option key={p} value={p}>{PERFIL_INFO[p].nome}</option>
@@ -105,23 +112,6 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="border-t px-3 py-2 text-[10px] text-muted-foreground">
         Demonstração — dados fictícios gerados localmente. Nada sai do navegador.
       </div>
-
-      <ConfirmDialog
-        open={perfilPendente !== null}
-        onClose={() => setPerfilPendente(null)}
-        onConfirm={() => {
-          if (!perfilPendente) return
-          setPerfil(perfilPendente)
-          navigate('/')
-          onNavigate?.()
-          toast(`Perfil "${PERFIL_INFO[perfilPendente].nome}" carregado.`)
-        }}
-        title="Trocar perfil da demonstração"
-        confirmLabel="Trocar perfil"
-      >
-        Carregar o perfil <strong>{perfilPendente ? PERFIL_INFO[perfilPendente].nome : ''}</strong>?
-        As alterações feitas no perfil atual serão descartadas e um novo conjunto de dados será gerado.
-      </ConfirmDialog>
     </>
   )
 }
@@ -129,11 +119,26 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 export function AppLayout() {
   const animais = useStore((s) => s.animais)
   const resetDemo = useStore((s) => s.resetDemo)
+  const equipe = useStore((s) => s.equipe)
+  const usuarioAtualId = useStore((s) => s.usuarioAtualId)
+  const setUsuarioAtual = useStore((s) => s.setUsuarioAtual)
   const navigate = useNavigate()
   const location = useLocation()
   const [busca, setBusca] = useState('')
   const [resetOpen, setResetOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [online, setOnline] = useState(() => navigator.onLine)
+
+  useEffect(() => {
+    const ficouOnline = () => setOnline(true)
+    const ficouOffline = () => setOnline(false)
+    window.addEventListener('online', ficouOnline)
+    window.addEventListener('offline', ficouOffline)
+    return () => {
+      window.removeEventListener('online', ficouOnline)
+      window.removeEventListener('offline', ficouOffline)
+    }
+  }, [])
 
   // fecha o drawer e volta ao topo ao trocar de rota (links, busca, alertas…)
   useEffect(() => {
@@ -214,14 +219,38 @@ export function AppLayout() {
               className="h-7 w-full rounded-md border border-input bg-white pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
           </form>
-          <button
-            onClick={() => setResetOpen(true)}
-            className="ml-auto inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
-            title="Restaurar dados da demo"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span className="hidden md:inline">Restaurar dados da demo</span>
-          </button>
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {!online && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800">
+                <WifiOff className="h-3 w-3" />
+                <span className="hidden sm:inline">Offline — dados seguros no aparelho</span>
+                <span className="sm:hidden">Offline</span>
+              </span>
+            )}
+            <Select
+              value={usuarioAtualId}
+              onChange={(e) => {
+                setUsuarioAtual(e.target.value)
+                const m = equipe.find((x) => x.id === e.target.value)
+                if (m) toast(`Operando como ${m.nome}.`)
+              }}
+              className="h-7 w-28 text-xs sm:w-40"
+              aria-label="Quem está operando"
+              title="Quem está operando o sistema"
+            >
+              {equipe.map((m) => (
+                <option key={m.id} value={m.id}>{m.nome}</option>
+              ))}
+            </Select>
+            <button
+              onClick={() => setResetOpen(true)}
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+              title="Restaurar dados da demo"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span className="hidden lg:inline">Restaurar demo</span>
+            </button>
+          </div>
         </header>
         <main className="min-w-0 flex-1 p-3 lg:p-4 print:p-0">
           <Suspense

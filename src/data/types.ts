@@ -88,6 +88,7 @@ export interface Movimentacao {
   origem?: string
   destino?: string
   obs?: string
+  responsavelId?: string
 }
 
 // ---- Cria ----
@@ -202,6 +203,7 @@ export interface MovEstoque {
   pedidoId?: string // origem (entrada)
   loteDestino?: string // consumo (saída)
   obs?: string
+  responsavelId?: string
 }
 
 // ---- Compras ----
@@ -252,6 +254,7 @@ export interface Lancamento {
   origem: OrigemLancamento
   refId?: string // pedido, manutenção, etc.
   centroCusto?: CentroCusto
+  responsavelId?: string
 }
 
 // ---- Máquinas ----
@@ -345,6 +348,27 @@ export interface ConfigLeite {
   mediaLitrosVacaDia: number
 }
 
+// ---- Equipe e conferência (campo lança → escritório dá o visto) ----
+export type PapelEquipe = 'campo' | 'escritorio' | 'gerente'
+
+export interface MembroEquipe {
+  id: string
+  nome: string
+  papel: PapelEquipe
+}
+
+/** Lançamento feito por alguém do campo, aguardando o visto do escritório */
+export interface Conferencia {
+  id: string
+  tipo: string // rótulo curto: Parto, Pesagem de lote, Saída de estoque…
+  resumo: string
+  responsavelId: string
+  lancadoEm: string // ISO datetime
+  status: 'pendente' | 'aprovado' | 'devolvido'
+  conferidoPorId?: string
+  conferidoEm?: string
+}
+
 /** Parâmetros operacionais que o produtor ajusta na tela (persistidos) */
 export interface ConfigFazenda {
   /** IP acima disso (em meses) marca a matriz em vermelho para descarte */
@@ -358,6 +382,9 @@ export interface SeedData {
   perfil: PerfilDemo
   geradoEm: string
   config: ConfigFazenda
+  equipe: MembroEquipe[]
+  usuarioAtualId: string
+  conferencias: Conferencia[]
   fazenda: {
     nome: string
     areaHa: number

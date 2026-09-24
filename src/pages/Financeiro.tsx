@@ -16,7 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from '@/components/ui/toast'
-import { metricasFinanceiro, statusLancamento } from '@/lib/metrics'
+import { metricasFinanceiro, nomeMembro, statusLancamento } from '@/lib/metrics'
 import { fmtBRL, fmtDate, fmtMesAno, fmtNum, hojeISO } from '@/lib/format'
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
 import type { Lancamento, OrigemLancamento } from '@/data/types'
@@ -128,6 +128,7 @@ export default function Financeiro() {
               <TableHead>Descrição</TableHead>
               <TableHead>Categoria</TableHead>
               <TableHead>Origem</TableHead>
+              <TableHead>Por</TableHead>
               <TableHead className="text-right">Valor</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="w-28 text-right">Ações</TableHead>
@@ -147,6 +148,7 @@ export default function Financeiro() {
                   <TableCell className="max-w-[300px] truncate font-medium">{l.descricao}</TableCell>
                   <TableCell className="text-muted-foreground">{l.categoria}</TableCell>
                   <TableCell className="text-muted-foreground">{ORIGEM_LABEL[l.origem]}</TableCell>
+                  <TableCell className="text-muted-foreground">{nomeMembro(state, l.responsavelId)}</TableCell>
                   <TableCell className={`tnum text-right font-semibold ${l.tipo === 'receita' ? 'text-green-700' : ''}`}>
                     {l.tipo === 'receita' ? '+' : '−'} {fmtBRL(l.valor)}
                   </TableCell>

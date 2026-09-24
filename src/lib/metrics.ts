@@ -186,6 +186,16 @@ export function ocorrenciasAbertas(data: Pick<SeedData, 'rondas'>) {
   )
 }
 
+// ---- Equipe e conferência ----
+export function nomeMembro(data: Pick<SeedData, 'equipe'>, id?: string): string {
+  if (!id) return '—'
+  return data.equipe.find((m) => m.id === id)?.nome ?? '—'
+}
+
+export function conferenciasPendentes(data: Pick<SeedData, 'conferencias'>) {
+  return data.conferencias.filter((c) => c.status === 'pendente')
+}
+
 // ---- Descarte (vazias + IP estourado) ----
 export const DIAS_POR_MES = 30.44
 
@@ -408,7 +418,7 @@ export function metricasLeite(data: Pick<SeedData, 'producaoLeite' | 'leite'>) {
 
 // ---- Alertas ----
 export interface Alerta {
-  tipo: 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario' | 'descarte'
+  tipo: 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario' | 'descarte' | 'conferencia'
   severidade: 'warning' | 'critical'
   titulo: string
   detalhe: string
@@ -474,6 +484,19 @@ export function alertas(data: SeedData): Alerta[] {
         link: '/os',
       })
     }
+  }
+  const pendConf = conferenciasPendentes(data)
+  if (pendConf.length > 0) {
+    out.push({
+      tipo: 'conferencia',
+      severidade: 'warning',
+      titulo: `${pendConf.length} lançamento(s) do campo aguardando conferência`,
+      detalhe: pendConf
+        .slice(0, 2)
+        .map((c) => `${c.tipo}: ${c.resumo}`)
+        .join(' · '),
+      link: '/equipe?tab=aprovacoes',
+    })
   }
   const descarte = candidatasDescarte(data)
   if (descarte.size > 0) {

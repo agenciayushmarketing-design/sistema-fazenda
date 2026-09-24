@@ -259,6 +259,26 @@ describe.each(PERFIS_LISTA)('coerência do seed — perfil %s', (perfil) => {
     expect(datasVazias.size).toBeGreaterThanOrEqual(2)
   })
 
+  it('equipe e conferências: usuário atual e responsáveis existem na equipe', () => {
+    expect(seed.equipe.length).toBeGreaterThan(0)
+    const ids = new Set(seed.equipe.map((m) => m.id))
+    expect(ids.has(seed.usuarioAtualId)).toBe(true)
+    expect(seed.conferencias.length).toBeGreaterThan(0)
+    for (const c of seed.conferencias) {
+      expect(ids.has(c.responsavelId), `conferência ${c.id} com responsável inexistente`).toBe(true)
+      if (c.status === 'aprovado') {
+        expect(c.conferidoPorId && ids.has(c.conferidoPorId)).toBe(true)
+      }
+    }
+    // todo lançamento carimbado aponta para alguém da equipe
+    for (const m of seed.movimentacoes) {
+      if (m.responsavelId) expect(ids.has(m.responsavelId)).toBe(true)
+    }
+    for (const l of seed.lancamentos) {
+      if (l.responsavelId) expect(ids.has(l.responsavelId)).toBe(true)
+    }
+  })
+
   it('geração é determinística para a mesma data', () => {
     const outra = buildSeed(perfil, HOJE)
     expect(JSON.stringify(outra)).toBe(JSON.stringify(seed))

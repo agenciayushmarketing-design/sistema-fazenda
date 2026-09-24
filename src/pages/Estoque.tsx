@@ -14,6 +14,7 @@ import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
 import type { CategoriaInsumo } from '@/data/types'
 import { addDays } from '@/data/seed'
+import { nomeMembro } from '@/lib/metrics'
 import { fmtBRL, fmtDate, fmtNum, hojeISO } from '@/lib/format'
 
 const CAT_LABEL: Record<CategoriaInsumo, string> = {
@@ -140,6 +141,7 @@ export default function Estoque() {
                   <TableHead className="text-right">Qtd</TableHead>
                   <TableHead className="text-right">Valor unit.</TableHead>
                   <TableHead>Origem / destino</TableHead>
+                  <TableHead>Por</TableHead>
                   <TableHead>Obs.</TableHead>
                 </TableRow>
               </TableHeader>
@@ -160,6 +162,7 @@ export default function Estoque() {
                       <TableCell className="text-muted-foreground">
                         {mv.tipo === 'entrada' ? `Pedido ${pedido?.numero ?? mv.pedidoId ?? '—'}` : mv.loteDestino ?? '—'}
                       </TableCell>
+                      <TableCell className="text-muted-foreground">{nomeMembro(state, mv.responsavelId)}</TableCell>
                       <TableCell className="max-w-[240px] truncate text-muted-foreground">{mv.obs ?? '—'}</TableCell>
                     </TableRow>
                   )
