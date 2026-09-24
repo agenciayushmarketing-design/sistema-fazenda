@@ -348,6 +348,33 @@ export interface ConfigLeite {
   mediaLitrosVacaDia: number
 }
 
+// ---- Nutrição ----
+/** Sal mineral colocado no cocho de um lote; fimReal = dia em que o cocho esvaziou */
+export interface FornecimentoSal {
+  id: string
+  data: string
+  loteId: string
+  itemEstoqueId: string
+  kg: number
+  cabecas: number
+  metaGCabDia: number
+  fimReal?: string
+  responsavelId?: string
+}
+
+/** Leitura do cocho do confinamento: a nota da sobra de ontem define o trato de hoje */
+export interface LeituraCocho {
+  id: string
+  data: string
+  loteId: string
+  nota: 0 | 1 | 2 | 3 | 4
+  cabecas: number
+  kgOntem: number
+  kgCalculado: number
+  itemEstoqueId: string
+  responsavelId?: string
+}
+
 // ---- Equipe e conferência (campo lança → escritório dá o visto) ----
 export type PapelEquipe = 'campo' | 'escritorio' | 'gerente'
 
@@ -413,4 +440,6 @@ export interface SeedData {
   leite?: ConfigLeite
   manejosSanitarios: ManejoSanitario[]
   rondas: RondaSanitaria[]
+  fornecimentosSal: FornecimentoSal[]
+  leiturasCocho: LeituraCocho[]
 }

@@ -1,6 +1,8 @@
 // Métricas derivadas do estado — funções puras usadas pelas páginas
-import type { Animal, Categoria, Lancamento, Pasto, SeedData } from '@/data/types'
-import { addDays, diffDays, APARTACAO_DIAS, KG_POR_ARROBA, UA_KG } from '@/data/seed'
+import type { Animal, Categoria, FornecimentoSal, Lancamento, Lote, Pasto, SeedData } from '@/data/types'
+import {
+  addDays, diffDays, APARTACAO_DIAS, KG_POR_ARROBA, META_SAL_G_CAB_DIA, TOLERANCIA_SAL, UA_KG,
+} from '@/data/seed'
 import { hojeISO } from '@/lib/format'
 
 export { UA_KG, KG_POR_ARROBA, APARTACAO_DIAS }
@@ -184,6 +186,128 @@ export function ocorrenciasAbertas(data: Pick<SeedData, 'rondas'>) {
       .filter((o) => !o.resolvida)
       .map((o) => ({ ronda: r, ocorrencia: o })),
   )
+}
+
+// ---- Nutrição: salga em campo ----
+/** Consumo real (g/cab/dia) de um fornecimento já encerrado */
+export function consumoRealSal(f: FornecimentoSal): number | null {
+  if (!f.fimReal) return null
+  const dias = Math.max(1, diffDays(f.data, f.fimReal))
+  return (f.kg * 1000) / (f.cabecas * dias)
+}
+
+/** Duração prevista (dias) do fornecimento se o lote consumir na meta */
+export function duracaoPrevistaSal(f: FornecimentoSal): number {
+  return (f.kg * 1000) / (f.cabecas * f.metaGCabDia)
+}
+
+export interface StatusSalgaLote {
+  lote: Lote
+  cabecas: number
+  meta: number
+  atual?: FornecimentoSal
+  diasEmUso: number
+  duracaoPrevista: number
+  ultimoFechado?: FornecimentoSal
+  consumoReal: number | null
+  desvio: number | null // +0,38 = 38% acima da meta
+  situacao: 'ok' | 'acima' | 'abaixo' | 'sem_dados'
+}
+
+export function statusSalga(data: Pick<SeedData, 'fornecimentosSal' | 'lotes' | 'animais'>): StatusSalgaLote[] {
+  const hoje = hojeISO()
+  const out: StatusSalgaLote[] = []
+  for (const lote of data.lotes) {
+    const meta = META_SAL_G_CAB_DIA[lote.finalidade]
+    if (meta <= 0) continue
+    const cabecas = ativos(data.animais).filter((a) => a.loteId === lote.id).length
+    const doLote = data.fornecimentosSal
+      .filter((f) => f.loteId === lote.id)
+      .sort((a, b) => a.data.localeCompare(b.data))
+    if (cabecas === 0 && doLote.length === 0) continue
+    const atual = [...doLote].reverse().find((f) => !f.fimReal)
+    const ultimoFechado = [...doLote].reverse().find((f) => f.fimReal)
+    const consumoReal = ultimoFechado ? consumoRealSal(ultimoFechado) : null
+    const desvio = consumoReal !== null ? consumoReal / ultimoFechado!.metaGCabDia - 1 : null
+    out.push({
+      lote,
+      cabecas,
+      meta,
+      atual,
+      diasEmUso: atual ? diffDays(atual.data, hoje) : 0,
+      duracaoPrevista: atual ? duracaoPrevistaSal(atual) : 0,
+      ultimoFechado,
+      consumoReal,
+      desvio,
+      situacao:
+        desvio === null ? 'sem_dados' : desvio > TOLERANCIA_SAL ? 'acima' : desvio < -TOLERANCIA_SAL ? 'abaixo' : 'ok',
+    })
+  }
+  return out
+}
+
+/** Consumo diário esperado de sal (kg) de todo o rebanho em pasto, na meta */
+export function consumoDiarioSalKg(data: Pick<SeedData, 'lotes' | 'animais'>): number {
+  let g = 0
+  for (const lote of data.lotes) {
+    const meta = META_SAL_G_CAB_DIA[lote.finalidade]
+    if (meta <= 0) continue
+    g += ativos(data.animais).filter((a) => a.loteId === lote.id).length * meta
+  }
+  return g / 1000
+}
+
+// ---- Eficiência vaca × bezerro ----
+export interface EficienciaMatriz {
+  vaca: Animal
+  bezerroBrinco: string
+  pesoAj205: number
+  eficiencia: number // % do peso da vaca que ela desmamou
+  fonte: 'desmame' | 'projecao'
+  classe: 'alta' | 'media' | 'baixa'
+}
+
+/** Kg de bezerro (ajustado a 205 dias) por kg de vaca — quem produz mais com menos */
+export function eficienciaMatrizes(data: Pick<SeedData, 'animais' | 'partos' | 'desmames'>): EficienciaMatriz[] {
+  const hoje = hojeISO()
+  const vivos = ativos(data.animais)
+  const vacas = new Map(vivos.filter((a) => a.categoria === 'vaca').map((a) => [a.brinco, a]))
+  const bezerros = new Map(vivos.map((a) => [a.brinco, a]))
+  const desmames = new Map(data.desmames.map((d) => [d.bezerroBrinco, d]))
+  // parto mais recente de cada matriz
+  const ultimoParto = new Map<string, (typeof data.partos)[number]>()
+  for (const p of data.partos) {
+    const atual = ultimoParto.get(p.matrizBrinco)
+    if (!atual || p.data > atual.data) ultimoParto.set(p.matrizBrinco, p)
+  }
+  const lista: Omit<EficienciaMatriz, 'classe'>[] = []
+  for (const [brinco, parto] of ultimoParto) {
+    const vaca = vacas.get(brinco)
+    if (!vaca) continue
+    const nascer = parto.pesoNascer
+    const d = desmames.get(parto.bezerroBrinco)
+    let pesoAj205: number
+    let fonte: EficienciaMatriz['fonte']
+    if (d) {
+      pesoAj205 = nascer + ((d.peso - nascer) / d.idadeDias) * 205
+      fonte = 'desmame'
+    } else {
+      const bez = bezerros.get(parto.bezerroBrinco)
+      if (!bez) continue
+      const idade = diffDays(bez.nascimento, hoje)
+      if (idade < 90) continue // muito novo para projetar
+      pesoAj205 = nascer + ((bez.pesoAtual - nascer) / idade) * 205
+      fonte = 'projecao'
+    }
+    lista.push({ vaca, bezerroBrinco: parto.bezerroBrinco, pesoAj205, eficiencia: (pesoAj205 / vaca.pesoAtual) * 100, fonte })
+  }
+  lista.sort((a, b) => b.eficiencia - a.eficiencia)
+  const q1 = lista[Math.floor(lista.length * 0.25)]?.eficiencia ?? Infinity
+  const q3 = lista[Math.floor(lista.length * 0.75)]?.eficiencia ?? -Infinity
+  return lista.map((e) => ({
+    ...e,
+    classe: e.eficiencia >= q1 ? 'alta' : e.eficiencia <= q3 ? 'baixa' : 'media',
+  }))
 }
 
 // ---- Equipe e conferência ----
@@ -418,7 +542,9 @@ export function metricasLeite(data: Pick<SeedData, 'producaoLeite' | 'leite'>) {
 
 // ---- Alertas ----
 export interface Alerta {
-  tipo: 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario' | 'descarte' | 'conferencia'
+  tipo:
+    | 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario'
+    | 'descarte' | 'conferencia' | 'sal'
   severidade: 'warning' | 'critical'
   titulo: string
   detalhe: string
@@ -484,6 +610,20 @@ export function alertas(data: SeedData): Alerta[] {
         link: '/os',
       })
     }
+  }
+  for (const s of statusSalga(data)) {
+    if (s.situacao !== 'acima' && s.situacao !== 'abaixo') continue
+    const pct = Math.round(Math.abs(s.desvio!) * 100)
+    out.push({
+      tipo: 'sal',
+      severidade: 'warning',
+      titulo: `Sal: ${s.lote.nome} consumindo ${pct}% ${s.situacao === 'acima' ? 'acima' : 'abaixo'} da meta`,
+      detalhe:
+        s.situacao === 'acima'
+          ? `${Math.round(s.consumoReal!)} g/cab/dia (meta ${s.meta}) — conferir desperdício ou sal exposto à chuva`
+          : `${Math.round(s.consumoReal!)} g/cab/dia (meta ${s.meta}) — cocho longe da aguada ou sal empedrado?`,
+      link: '/nutricao',
+    })
   }
   const pendConf = conferenciasPendentes(data)
   if (pendConf.length > 0) {

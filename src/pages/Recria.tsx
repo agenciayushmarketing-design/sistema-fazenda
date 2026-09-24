@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
@@ -12,7 +13,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
-import { gmdMedioRecria, qtdLoteRecria } from '@/lib/metrics'
+import { gmdMedioRecria, qtdLoteRecria, statusSalga } from '@/lib/metrics'
 import { addDays, diffDays } from '@/data/seed'
 import { fmtDate, fmtGMD, fmtKg1, fmtNum, hojeISO } from '@/lib/format'
 import { SERIES, GRID, MUTED_INK, axisProps, tooltipStyle } from '@/lib/chart'
@@ -122,6 +123,20 @@ export default function Recria() {
                   <TableCell className="tnum text-right font-semibold">{atual ? fmtKg1(atual.peso) : '—'}</TableCell>
                   <TableCell className="tnum text-right">
                     <span className={acimaMeta ? 'text-green-700' : 'text-amber-700'}>{fmtGMD(g3)}</span>
+                    {!acimaMeta && (() => {
+                      const sal = statusSalga(state).find((s) => s.lote.id === l.id)
+                      return (
+                        <Link
+                          to="/nutricao"
+                          onClick={(e) => e.stopPropagation()}
+                          className="mt-0.5 block text-[10px] font-normal text-amber-800 hover:underline"
+                        >
+                          {sal?.situacao === 'abaixo'
+                            ? 'Sal abaixo da meta — conferir cocho'
+                            : 'Reforçar proteico / conferir sal'}
+                        </Link>
+                      )
+                    })()}
                   </TableCell>
                   <TableCell className="tnum text-right text-muted-foreground">{fmtGMD(l.gmdMeta)}</TableCell>
                   <TableCell>

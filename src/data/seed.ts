@@ -19,8 +19,10 @@ import type {
   Desmame,
   DiagnosticoGestacao,
   EstacaoMonta,
+  FornecimentoSal,
   ItemEstoque,
   Lancamento,
+  LeituraCocho,
   Lote,
   LoteRecria,
   ManejoSanitario,
@@ -49,6 +51,27 @@ export const UA_KG = 450 // 1 UA = 450 kg de peso vivo
 export const KG_POR_ARROBA = 30 // 1 @ = 30 kg PV equivalente (rendimento 50%)
 export const GESTACAO_DIAS = 283
 export const APARTACAO_DIAS = 240 // apartação (desmame) prevista aos 8 meses
+
+/** Meta de consumo de sal mineral (g/cabeça/dia) por finalidade do lote */
+export const META_SAL_G_CAB_DIA: Record<Lote['finalidade'], number> = {
+  cria: 90,
+  reproducao: 80,
+  leite: 100,
+  recria: 60,
+  terminacao: 0, // confinamento recebe o mineral na ração
+}
+
+/** Tolerância de desvio do consumo de sal antes de virar alerta */
+export const TOLERANCIA_SAL = 0.2
+
+/** Escala de leitura de cocho: nota da sobra → ajuste do trato de hoje */
+export const NOTAS_COCHO = [
+  { nota: 0, rotulo: 'Lambido', descricao: 'Cocho vazio e lambido — faltou comida', ajuste: 0.1 },
+  { nota: 1, rotulo: 'Limpo', descricao: 'Poucos restos espalhados', ajuste: 0.05 },
+  { nota: 2, rotulo: 'Ideal', descricao: 'Fina camada de sobra (~5%)', ajuste: 0 },
+  { nota: 3, rotulo: 'Sobra', descricao: 'Sobra moderada (10–25%)', ajuste: -0.05 },
+  { nota: 4, rotulo: 'Muita sobra', descricao: 'Mais de 25% do trato no cocho', ajuste: -0.1 },
+] as const
 
 // ---------------------------------------------------------------------
 // Estrutura de parâmetros de um perfil
@@ -198,6 +221,16 @@ interface PerfilParams {
     notas: { dias: number; texto: string }[]
   }[]
   leite?: { vacasLactacao: number; precoLitro: number; mediaLitrosVacaDia: number }
+  /** salga em campo: gera os fornecimentos de sal (e as saídas de estoque) */
+  salga: {
+    inicioDias: number
+    itemId: string
+    diasPorFornecimento: number
+    /** consumo real ÷ meta por lote (padrão ~1,0) — os desvios viram os alertas da demo */
+    fatores: Record<string, number>
+  }
+  /** leitura de cocho do confinamento (gera as leituras e as saídas de ração) */
+  cocho?: { loteId: string; itemId: string; kgCabInicial: number; kgCabAlvo: number }
   manejos: {
     dia: number
     tipo: ManejoSanitario['tipo']
@@ -392,12 +425,6 @@ const PERFIL_CICLO: PerfilParams = {
     { itemId: 'HOR-P4', dia: -88, quantidade: 460, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
     { itemId: 'HOR-ECG', dia: -82, quantidade: 460, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
     { itemId: 'HOR-PGF', dia: -82, quantidade: 460, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
-    { itemId: 'SAL-MIN', dia: -65, quantidade: 3800, loteDestino: 'Retiros (cocho)', obs: 'Consumo mensal' },
-    { itemId: 'SAL-MIN', dia: -37, quantidade: 3800, loteDestino: 'Retiros (cocho)', obs: 'Consumo mensal' },
-    { itemId: 'SAL-MIN', dia: -9, quantidade: 3800, loteDestino: 'Retiros (cocho)', obs: 'Consumo mensal' },
-    { itemId: 'SAL-MIN', dia: -2, quantidade: 3800, loteDestino: 'Retiros (cocho)', obs: 'Consumo mensal' },
-    { itemId: 'RAC-CONF', dia: -30, quantidade: 33000, loteDestino: 'Confinamento Sede', obs: 'Trato diário' },
-    { itemId: 'RAC-CONF', dia: -3, quantidade: 30360, loteDestino: 'Confinamento Sede', obs: 'Trato diário' },
     { itemId: 'SUP-REC', dia: -25, quantidade: 18000, loteDestino: 'Lotes de recria', obs: 'Suplementação' },
     { itemId: 'SUP-REC', dia: -1, quantidade: 12000, loteDestino: 'Lotes de recria', obs: 'Suplementação' },
     { itemId: 'MED-IVE', dia: -70, quantidade: 35, loteDestino: 'Rebanho geral', obs: 'Vermifugação' },
@@ -405,6 +432,13 @@ const PERFIL_CICLO: PerfilParams = {
     { itemId: 'MED-FLO', dia: -15, quantidade: 6, loteDestino: 'Recria Machos 25/26' },
   ],
   historicoPrecosBase: { 'SAL-MIN': 1.85, 'RAC-CONF': 1.42, 'SUP-REC': 2.15, 'SEM-ARM': 58, 'VAC-AFT': 1.65, 'MED-IVE': 39 },
+  salga: {
+    inicioDias: -63,
+    itemId: 'SAL-MIN',
+    diasPorFornecimento: 7,
+    fatores: { 'L-SR': 1.38, R2: 0.68 }, // excesso em Santa Rita, subconsumo nas fêmeas de recria
+  },
+  cocho: { loteId: 'CONF', itemId: 'RAC-CONF', kgCabInicial: 9, kgCabAlvo: 12 },
   vendaDescarte: { dia: -85, qtd: 30, valorCabeca: 2600, obs: 'Vacas de descarte — Frigorífico Boi Forte' },
   compraBois: { dia: -60, obs: 'Garrotões p/ terminação — Leilão Uberaba' },
   mudancaCategoria: { qtd: 40 },
@@ -559,11 +593,15 @@ const PERFIL_CRIA: PerfilParams = {
     { itemId: 'HOR-PGF', dia: -44, quantidade: 135, loteDestino: 'Matrizes IATF', obs: 'Protocolo IATF' },
     { itemId: 'VAC-AFT', dia: -30, quantidade: 300, loteDestino: 'Rebanho geral', obs: 'Campanha aftosa' },
     { itemId: 'VAC-CLO', dia: -25, quantidade: 115, loteDestino: 'Bezerros(as) da safra' },
-    { itemId: 'SAL-MIN', dia: -30, quantidade: 1100, loteDestino: 'Pastos (cocho)', obs: 'Consumo mensal' },
-    { itemId: 'SAL-MIN', dia: -2, quantidade: 1100, loteDestino: 'Pastos (cocho)', obs: 'Consumo mensal' },
     { itemId: 'MED-IVE', dia: -30, quantidade: 7, loteDestino: 'Rebanho geral', obs: 'Vermifugação' },
   ],
   historicoPrecosBase: { 'SAL-MIN': 2.05, 'SEM-ARM': 60, 'VAC-AFT': 1.7 },
+  salga: {
+    inicioDias: -33, // o sal chegou no pedido de -35
+    itemId: 'SAL-MIN',
+    diasPorFornecimento: 7,
+    fatores: { 'L-M2': 1.32 }, // Pasto do Rio: consumo acima da meta (sal exposto à chuva?)
+  },
   despesasFixas: [
     { descricao: 'Folha de pagamento', categoria: 'Pessoal', valorMes: 5800 },
     { descricao: 'Energia elétrica', categoria: 'Energia', valorMes: 650 },
@@ -758,14 +796,18 @@ const PERFIL_CORTE_LEITE: PerfilParams = {
     { itemId: 'VAC-AFT', dia: -60, quantidade: 500, loteDestino: 'Rebanho geral', obs: 'Campanha aftosa' },
     { itemId: 'VAC-CLO', dia: -35, quantidade: 160, loteDestino: 'Bezerros(as) da safra' },
     { itemId: 'VAC-BRU', dia: -35, quantidade: 40, loteDestino: 'Bezerras 3–8 meses' },
-    { itemId: 'SAL-MIN', dia: -45, quantidade: 2200, loteDestino: 'Retiros (cocho)', obs: 'Consumo mensal' },
-    { itemId: 'SAL-MIN', dia: -15, quantidade: 2200, loteDestino: 'Retiros (cocho)', obs: 'Consumo mensal' },
-    { itemId: 'RAC-CONF', dia: -25, quantidade: 22000, loteDestino: 'Confinamento Sede', obs: 'Trato diário' },
     { itemId: 'RAC-LACT', dia: -12, quantidade: 16000, loteDestino: 'Leite — Lactação', obs: 'Trato da ordenha' },
     { itemId: 'MED-IVE', dia: -60, quantidade: 14, loteDestino: 'Rebanho geral', obs: 'Vermifugação' },
     { itemId: 'MED-OXI', dia: -10, quantidade: 5, loteDestino: 'Leite — Lactação' },
   ],
   historicoPrecosBase: { 'SAL-MIN': 1.9, 'RAC-CONF': 1.45, 'RAC-LACT': 1.88, 'SEM-ARM': 59 },
+  salga: {
+    inicioDias: -60,
+    itemId: 'SAL-MIN',
+    diasPorFornecimento: 7,
+    fatores: { 'L-C1': 0.7 }, // Matrizes Corte 1: subconsumo (cocho longe da aguada?)
+  },
+  cocho: { loteId: 'CONF', itemId: 'RAC-CONF', kgCabInicial: 9, kgCabAlvo: 12 },
   vendaDescarte: { dia: -75, qtd: 18, valorCabeca: 2750, obs: 'Vacas de descarte — Frigorífico Planalto' },
   compraBois: { dia: -55, obs: 'Garrotões p/ terminação — Leilão regional' },
   mudancaCategoria: { qtd: 15 },
@@ -895,13 +937,16 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
   ciclo_completo: {
     nome: 'Ciclo completo',
     descricao: 'Nelore, 800 ha, 1.200 cabeças',
-    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/estoque', '/compras', '/financeiro', '/equipe', '/relatorios'],
+    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/nutricao', '/estoque', '/compras', '/financeiro', '/equipe', '/relatorios'],
     boasVindas:
       'Operação de ciclo completo: da cria à terminação, com estoque, compras e custo por arroba amarrados de ponta a ponta.',
     destaques: [
       { rotulo: 'Rebanho de 1.200 cabeças rastreado', link: '/rebanho' },
       { rotulo: 'GMD e projeções da recria', link: '/recria' },
       { rotulo: 'IATF e prenhez por terço', link: '/reproducao' },
+      { rotulo: 'Salga: meta × realizado', link: '/nutricao' },
+      { rotulo: 'Leitura de cocho → trato do dia', link: '/nutricao?tab=cocho' },
+      { rotulo: 'Eficiência vaca × bezerro', link: '/cria?tab=eficiencia' },
       { rotulo: 'Custo/@ e fluxo de caixa', link: '/financeiro' },
     ],
   },
@@ -910,13 +955,15 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     descricao: 'Cria pura: partos, IATF, IP e apartação',
     boasVindas:
       'Pequena propriedade de cria com tudo que importa na produção de bezerros — sem módulos que você não usa.',
-    modulos: ['/', '/rebanho', '/cria', '/reproducao', '/sanitario', '/estoque', '/equipe', '/relatorios'],
+    modulos: ['/', '/rebanho', '/cria', '/reproducao', '/sanitario', '/nutricao', '/estoque', '/equipe', '/relatorios'],
     destaques: [
       { rotulo: 'Partos e desmames da safra', link: '/cria' },
       { rotulo: 'Previsão de apartação aos 8 meses', link: '/cria?tab=apartacao' },
       { rotulo: 'IP (intervalo entre partos) por matriz', link: '/cria?tab=ip' },
+      { rotulo: 'Eficiência vaca × bezerro', link: '/cria?tab=eficiencia' },
       { rotulo: 'IATF, DG e partos previstos', link: '/reproducao?tab=partos' },
       { rotulo: 'Lista de descarte (vazias + IP)', link: '/reproducao?tab=descarte' },
+      { rotulo: 'Salga: meta × realizado', link: '/nutricao' },
       { rotulo: 'Vacinação e ronda sanitária', link: '/sanitario' },
     ],
   },
@@ -925,9 +972,10 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     descricao: 'Completo: financeiro, máquinas, OS e leite',
     boasVindas:
       'Fazenda mista de corte e leite com a gestão completa: rebanho, reprodução, financeiro, frota de máquinas e ordens de serviço.',
-    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/leite', '/estoque', '/compras', '/financeiro', '/maquinas', '/os', '/equipe', '/relatorios'],
+    modulos: ['/', '/rebanho', '/cria', '/recria', '/reproducao', '/sanitario', '/nutricao', '/leite', '/estoque', '/compras', '/financeiro', '/maquinas', '/os', '/equipe', '/relatorios'],
     destaques: [
       { rotulo: 'Fluxo de caixa e contas a pagar', link: '/financeiro' },
+      { rotulo: 'Salga e leitura de cocho', link: '/nutricao' },
       { rotulo: 'Produção de leite diária', link: '/leite' },
       { rotulo: 'Máquinas, horímetro e manutenção', link: '/maquinas' },
       { rotulo: 'Ordens de serviço com acompanhamento', link: '/os' },
@@ -1309,7 +1357,9 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
       pesagens.push({ data: desmame.data, peso: desmame.peso })
     } else {
       loteId = P.lotesCriaIds[bzSeq % P.lotesCriaIds.length]
-      peso = round1(b.parto.pesoNascer + 0.75 * idadeDias)
+      // ganho ao pé varia por dupla vaca/bezerro — é o que diferencia a eficiência das matrizes
+      const gmdPe = 0.62 + rng() * 0.28
+      peso = round1(b.parto.pesoNascer + gmdPe * idadeDias)
     }
     animais.push({
       id: `A-BZ${bzSeq}`,
@@ -1571,6 +1621,91 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
       obs: s.obs,
     })
   }
+
+  // ---- Salga em campo: cada fornecimento de sal é uma saída de estoque ----
+  const fornecimentosSal: FornecimentoSal[] = []
+  for (const lote of lotes) {
+    const meta = META_SAL_G_CAB_DIA[lote.finalidade]
+    if (meta <= 0) continue
+    const cab = animais.filter((a) => a.status === 'ativo' && a.loteId === lote.id).length
+    if (cab === 0) continue
+    const fator = P.salga.fatores[lote.id] ?? 0.92 + rng() * 0.16
+    const entradaLote = P.recria.find((r) => r.id === lote.id)?.entradaDias
+    let dia = Math.max(P.salga.inicioDias, entradaLote ?? P.salga.inicioDias)
+    while (dia <= 0) {
+      // sacos de 25 kg para ~N dias de consumo na meta
+      const kg = Math.max(25, Math.round((cab * meta * P.salga.diasPorFornecimento) / 1000 / 25) * 25)
+      const duracaoReal = Math.max(1, Math.round((kg * 1000) / (cab * meta * fator)))
+      const fim = dia + duracaoReal
+      const data = addDays(today, dia)
+      fornecimentosSal.push({
+        id: `FS-${String(fornecimentosSal.length + 1).padStart(3, '0')}`,
+        data,
+        loteId: lote.id,
+        itemEstoqueId: P.salga.itemId,
+        kg,
+        cabecas: cab,
+        metaGCabDia: meta,
+        fimReal: fim <= 0 ? addDays(today, fim) : undefined,
+        responsavelId: campoId,
+      })
+      mePush({
+        data,
+        itemId: P.salga.itemId,
+        tipo: 'saida',
+        quantidade: kg,
+        loteDestino: lote.nome,
+        obs: 'Salga no cocho',
+      })
+      dia = fim
+    }
+  }
+
+  // ---- Leitura de cocho do confinamento: a nota de ontem define o trato de hoje ----
+  const leiturasCocho: LeituraCocho[] = []
+  if (P.cocho && P.confinamento) {
+    const c = P.cocho
+    const cab = P.confinamento.qtd
+    const loteNome = lotes.find((l) => l.id === c.loteId)?.nome ?? c.loteId
+    let trato = Math.round(cab * c.kgCabInicial)
+    // até ontem: a leitura de HOJE fica pendente para ser feita ao vivo na apresentação
+    for (let d = P.confinamento.entradaDias; d <= -1; d++) {
+      let nota: LeituraCocho['nota']
+      if (d === P.confinamento.entradaDias) {
+        nota = 2 // dia da entrada: trato de adaptação
+      } else {
+        const kgCab = trato / cab
+        const r = rng()
+        if (kgCab < c.kgCabAlvo * 0.97) nota = r < 0.5 ? 0 : 1
+        else if (kgCab > c.kgCabAlvo * 1.03) nota = r < 0.85 ? 3 : 4
+        else nota = r < 0.2 ? 1 : r < 0.75 ? 2 : 3
+      }
+      const kgOntem = trato
+      const ajuste = NOTAS_COCHO[nota].ajuste
+      trato = d === P.confinamento.entradaDias ? trato : Math.round(trato * (1 + ajuste))
+      const data = addDays(today, d)
+      leiturasCocho.push({
+        id: `LT-${String(leiturasCocho.length + 1).padStart(3, '0')}`,
+        data,
+        loteId: c.loteId,
+        nota,
+        cabecas: cab,
+        kgOntem,
+        kgCalculado: trato,
+        itemEstoqueId: c.itemId,
+        responsavelId: campoId,
+      })
+      mePush({
+        data,
+        itemId: c.itemId,
+        tipo: 'saida',
+        quantidade: trato,
+        loteDestino: loteNome,
+        obs: `Trato do dia (leitura nota ${nota})`,
+      })
+    }
+  }
+
   movEstoque.sort((a, b) => a.data.localeCompare(b.data))
 
   const estoque: ItemEstoque[] = P.itensEstoque.map((def) => {
@@ -1829,5 +1964,7 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     leite: P.leite ? { ...P.leite } : undefined,
     manejosSanitarios,
     rondas,
+    fornecimentosSal,
+    leiturasCocho,
   }
 }

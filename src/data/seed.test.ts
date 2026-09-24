@@ -279,6 +279,46 @@ describe.each(PERFIS_LISTA)('coerência do seed — perfil %s', (perfil) => {
     }
   })
 
+  it('salga: saídas de sal no estoque = soma dos fornecimentos nos cochos', () => {
+    const itemSal = P.salga.itemId
+    expect(seed.fornecimentosSal.length).toBeGreaterThan(0)
+    const somaFornecimentos = seed.fornecimentosSal.reduce((s, f) => s + f.kg, 0)
+    const saidasSal = seed.movEstoque
+      .filter((m) => m.tipo === 'saida' && m.itemId === itemSal)
+      .reduce((s, m) => s + m.quantidade, 0)
+    expect(saidasSal).toBe(somaFornecimentos)
+    const lotes = new Set(seed.lotes.map((l) => l.id))
+    for (const f of seed.fornecimentosSal) {
+      expect(lotes.has(f.loteId)).toBe(true)
+      expect(f.cabecas).toBeGreaterThan(0)
+      expect(f.metaGCabDia).toBeGreaterThan(0)
+      if (f.fimReal) expect(f.fimReal > f.data).toBe(true)
+    }
+    // cada lote tem no máximo um cocho em uso
+    const abertos = seed.fornecimentosSal.filter((f) => !f.fimReal).map((f) => f.loteId)
+    expect(new Set(abertos).size).toBe(abertos.length)
+  })
+
+  it('leitura de cocho: saídas de ração = soma dos tratos calculados, e cada trato segue a nota', () => {
+    if (!P.cocho) {
+      expect(seed.leiturasCocho.length).toBe(0)
+      return
+    }
+    expect(seed.leiturasCocho.length).toBeGreaterThan(0)
+    const somaTratos = seed.leiturasCocho.reduce((s, l) => s + l.kgCalculado, 0)
+    const saidasRacao = seed.movEstoque
+      .filter((m) => m.tipo === 'saida' && m.itemId === P.cocho!.itemId)
+      .reduce((s, m) => s + m.quantidade, 0)
+    expect(saidasRacao).toBe(somaTratos)
+    const ajustes = [0.1, 0.05, 0, -0.05, -0.1]
+    for (const l of seed.leiturasCocho.slice(1)) {
+      expect(l.kgCalculado).toBe(Math.round(l.kgOntem * (1 + ajustes[l.nota])))
+    }
+    // uma leitura por dia
+    const datas = seed.leiturasCocho.map((l) => l.data)
+    expect(new Set(datas).size).toBe(datas.length)
+  })
+
   it('geração é determinística para a mesma data', () => {
     const outra = buildSeed(perfil, HOJE)
     expect(JSON.stringify(outra)).toBe(JSON.stringify(seed))

@@ -241,10 +241,14 @@ function RelatorioDia({ state }: { state: Store }) {
     .filter((x) => x.pes.length > 0)
   const leiteHoje = state.producaoLeite.find((p) => p.data === hoje)
   const confPendentes = state.conferencias.filter((c) => c.status === 'pendente')
+  const salDia = doDia(state.fornecimentosSal)
+  const cochoDia = doDia(state.leiturasCocho)
+  const loteNome = (id: string) => state.lotes.find((l) => l.id === id)?.nome ?? id
 
   const nada =
     partos.length + desmames.length + manejos.length + rondas.length + movs.length +
-    estoqueDia.length + financeiroDia.length + pesagensLote.length === 0 && !leiteHoje
+    estoqueDia.length + financeiroDia.length + pesagensLote.length + salDia.length + cochoDia.length === 0 &&
+    !leiteHoje
 
   return (
     <>
@@ -258,6 +262,28 @@ function RelatorioDia({ state }: { state: Store }) {
           <TabelaRelatorio
             cab={['Lote', 'Peso médio']}
             linhas={pesagensLote.map((x) => [x.lote.nome, `${fmtNum1(x.pes[x.pes.length - 1].peso)} kg`])}
+          />
+        </Secao>
+      )}
+      {cochoDia.length > 0 && (
+        <Secao titulo="Leitura de cocho e trato do dia">
+          <TabelaRelatorio
+            cab={['Lote', 'Nota', 'Trato', 'Kg/cab', 'Por']}
+            linhas={cochoDia.map((l) => [
+              loteNome(l.loteId),
+              l.nota,
+              `${fmtNum(l.kgCalculado)} kg`,
+              fmtNum1(l.kgCalculado / l.cabecas),
+              nomeMembro(state, l.responsavelId),
+            ])}
+          />
+        </Secao>
+      )}
+      {salDia.length > 0 && (
+        <Secao titulo="Salga do dia">
+          <TabelaRelatorio
+            cab={['Lote', 'Kg no cocho', 'Cabeças', 'Por']}
+            linhas={salDia.map((f) => [loteNome(f.loteId), fmtNum(f.kg), fmtNum(f.cabecas), nomeMembro(state, f.responsavelId)])}
           />
         </Secao>
       )}

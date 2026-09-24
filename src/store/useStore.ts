@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { addDays, buildSeed, diffDays } from '@/data/seed'
+import { addDays, buildSeed, diffDays, META_SAL_G_CAB_DIA, NOTAS_COCHO } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
 import { CATEGORIA_LABEL } from '@/data/types'
 import type {
@@ -31,7 +31,7 @@ import type {
 } from '@/data/types'
 
 const STORAGE_KEY = 'fazenda-santa-helena-demo'
-const VERSAO_DEMO = 6
+const VERSAO_DEMO = 7
 const chaveFazenda = (p: PerfilDemo) => `fazenda-demo-salva-${p}`
 
 /** Só os dados (sem as actions) — para salvar o snapshot de cada fazenda */
@@ -146,6 +146,31 @@ interface Actions {
   /** Ronda: registra ocorrências; tratamento escreve na ficha, morte dá baixa no animal */
   addRonda: (r: Omit<RondaSanitaria, 'id'>) => { ok: boolean; erro?: string }
   resolverOcorrencia: (rondaId: string, index: number) => void
+
+  // Nutrição — tudo dá baixa automática no estoque (sem lançamento duplo)
+  /** Coloca sal no cocho de um lote. Com `cochoVazio`, encerra o fornecimento anterior nessa
+   *  data (fecha o consumo real); sem, complementa o cocho que está em uso. */
+  addFornecimentoSal: (p: {
+    data: string
+    loteId: string
+    itemEstoqueId: string
+    kg: number
+    cochoVazio: boolean
+  }) => {
+    ok: boolean
+    erro?: string
+  }
+  /** Registra que o cocho esvaziou — fecha o consumo real do fornecimento */
+  fecharFornecimentoSal: (id: string, data: string) => void
+  /** Leitura do cocho: nota da sobra → trato de hoje, com saída de ração do estoque */
+  addLeituraCocho: (p: {
+    data: string
+    loteId: string
+    nota: 0 | 1 | 2 | 3 | 4
+    cabecas: number
+    kgOntem: number
+    itemEstoqueId: string
+  }) => { ok: boolean; erro?: string; kgCalculado?: number }
 }
 
 export type Store = SeedData & Actions
@@ -1034,6 +1059,113 @@ export const useStore = create<Store>()(
           fazenda: baixas > 0 ? { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - baixas } : s.fazenda,
         })
         return { ok: true }
+      },
+
+      addFornecimentoSal: ({ data, loteId, itemEstoqueId, kg, cochoVazio }) => {
+        const s = get()
+        const lote = s.lotes.find((l) => l.id === loteId)
+        const item = s.estoque.find((i) => i.id === itemEstoqueId)
+        if (!lote || !item) return { ok: false, erro: 'Lote ou insumo não encontrado.' }
+        if (!(kg > 0)) return { ok: false, erro: 'Informe os quilos colocados no cocho.' }
+        // aviso de incoerência pedido em campo: não dá para salgar com o que não tem no estoque
+        if (kg > item.saldo) {
+          return {
+            ok: false,
+            erro: `O estoque de ${item.nome} tem só ${item.saldo.toLocaleString('pt-BR')} ${item.unidade} — confira a quantidade ou dê entrada na compra.`,
+          }
+        }
+        const cabecas = s.animais.filter((a) => a.status === 'ativo' && a.loteId === loteId).length
+        if (cabecas === 0) return { ok: false, erro: 'Esse lote não tem animais ativos.' }
+        const aberto = s.fornecimentosSal.find((f) => f.loteId === loteId && !f.fimReal)
+        // complemento: cocho ainda com sal (ou abastecido no mesmo dia) — soma no fornecimento em uso
+        const complementa = aberto && (!cochoVazio || aberto.data >= data)
+        set({
+          fornecimentosSal: complementa
+            ? s.fornecimentosSal.map((f) => (f.id === aberto.id ? { ...f, kg: f.kg + kg } : f))
+            : [
+                // reabasteceu = o fornecimento anterior do lote terminou nessa data
+                ...s.fornecimentosSal.map((f) =>
+                  f.loteId === loteId && !f.fimReal && f.data < data ? { ...f, fimReal: data } : f,
+                ),
+                {
+                  id: nid('FS'),
+                  data,
+                  loteId,
+                  itemEstoqueId,
+                  kg,
+                  cabecas,
+                  metaGCabDia: META_SAL_G_CAB_DIA[lote.finalidade],
+                  responsavelId: s.usuarioAtualId,
+                },
+              ],
+          movEstoque: [
+            ...s.movEstoque,
+            {
+              id: nid('ME'),
+              data,
+              itemId: itemEstoqueId,
+              tipo: 'saida' as const,
+              quantidade: kg,
+              loteDestino: lote.nome,
+              obs: 'Salga no cocho',
+              responsavelId: s.usuarioAtualId,
+            },
+          ],
+          estoque: s.estoque.map((i) => (i.id === itemEstoqueId ? { ...i, saldo: i.saldo - kg } : i)),
+          conferencias: comConferencia(s, 'Salga', `${lote.nome} — ${kg.toLocaleString('pt-BR')} kg de ${item.nome}`),
+        })
+        return { ok: true }
+      },
+
+      fecharFornecimentoSal: (id, data) =>
+        set((s) => ({
+          fornecimentosSal: s.fornecimentosSal.map((f) =>
+            f.id === id && !f.fimReal ? { ...f, fimReal: data > f.data ? data : addDays(f.data, 1) } : f,
+          ),
+        })),
+
+      addLeituraCocho: ({ data, loteId, nota, cabecas, kgOntem, itemEstoqueId }) => {
+        const s = get()
+        const lote = s.lotes.find((l) => l.id === loteId)
+        const item = s.estoque.find((i) => i.id === itemEstoqueId)
+        if (!lote || !item) return { ok: false, erro: 'Lote ou ração não encontrados.' }
+        if (s.leiturasCocho.some((l) => l.loteId === loteId && l.data === data)) {
+          return { ok: false, erro: 'A leitura desse cocho já foi feita nesse dia.' }
+        }
+        if (!(cabecas > 0) || !(kgOntem > 0)) return { ok: false, erro: 'Informe cabeças e o trato de ontem.' }
+        const kgCalculado = Math.round(kgOntem * (1 + NOTAS_COCHO[nota].ajuste))
+        if (kgCalculado > item.saldo) {
+          return {
+            ok: false,
+            erro: `Ração insuficiente: o trato pede ${kgCalculado.toLocaleString('pt-BR')} kg e o estoque tem ${item.saldo.toLocaleString('pt-BR')} kg.`,
+          }
+        }
+        set({
+          leiturasCocho: [
+            ...s.leiturasCocho,
+            { id: nid('LT'), data, loteId, nota, cabecas, kgOntem, kgCalculado, itemEstoqueId, responsavelId: s.usuarioAtualId },
+          ],
+          movEstoque: [
+            ...s.movEstoque,
+            {
+              id: nid('ME'),
+              data,
+              itemId: itemEstoqueId,
+              tipo: 'saida' as const,
+              quantidade: kgCalculado,
+              loteDestino: lote.nome,
+              obs: `Trato do dia (leitura nota ${nota})`,
+              responsavelId: s.usuarioAtualId,
+            },
+          ],
+          estoque: s.estoque.map((i) => (i.id === itemEstoqueId ? { ...i, saldo: i.saldo - kgCalculado } : i)),
+          conferencias: comConferencia(
+            s,
+            'Leitura de cocho',
+            `${lote.nome}: nota ${nota} → trato de ${kgCalculado.toLocaleString('pt-BR')} kg`,
+          ),
+        })
+        return { ok: true, kgCalculado }
       },
 
       resolverOcorrencia: (rondaId, index) =>

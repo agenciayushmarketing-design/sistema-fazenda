@@ -18,6 +18,7 @@ import {
   Stethoscope,
   FileText,
   Users,
+  Wheat,
   WifiOff,
   X,
 } from 'lucide-react'
@@ -37,6 +38,7 @@ const NAV = [
   { to: '/recria', label: 'Recria', icon: TrendingUp },
   { to: '/reproducao', label: 'Reprodução', icon: HeartPulse },
   { to: '/sanitario', label: 'Sanitário', icon: Stethoscope },
+  { to: '/nutricao', label: 'Nutrição', icon: Wheat },
   { to: '/leite', label: 'Leite', icon: Milk },
   { to: '/estoque', label: 'Estoque', icon: Package },
   { to: '/compras', label: 'Compras', icon: ShoppingCart },

@@ -38,6 +38,7 @@ const importadores = {
   Recria: () => import('@/pages/Recria'),
   Reproducao: () => import('@/pages/Reproducao'),
   Sanitario: () => import('@/pages/Sanitario'),
+  Nutricao: () => import('@/pages/Nutricao'),
   Estoque: () => import('@/pages/Estoque'),
   Compras: () => import('@/pages/Compras'),
   Financeiro: () => import('@/pages/Financeiro'),
@@ -55,6 +56,7 @@ const Cria = pagina(importadores.Cria)
 const Recria = pagina(importadores.Recria)
 const Reproducao = pagina(importadores.Reproducao)
 const Sanitario = pagina(importadores.Sanitario)
+const Nutricao = pagina(importadores.Nutricao)
 const Estoque = pagina(importadores.Estoque)
 const Compras = pagina(importadores.Compras)
 const Financeiro = pagina(importadores.Financeiro)
@@ -77,6 +79,7 @@ const router = createHashRouter([
       { path: '/reproducao', element: <Reproducao /> },
       { path: '/leite', element: <Leite /> },
       { path: '/sanitario', element: <Sanitario /> },
+      { path: '/nutricao', element: <Nutricao /> },
       { path: '/estoque', element: <Estoque /> },
       { path: '/compras', element: <Compras /> },
       { path: '/financeiro', element: <Financeiro /> },

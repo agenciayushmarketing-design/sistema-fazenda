@@ -16,8 +16,11 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from '@/components/ui/toast'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
+  ScatterChart, Scatter, ReferenceLine,
 } from 'recharts'
-import { apartacoesPorMes, intervaloPartosPorMatriz, metricasCria, previsaoApartacao, DIAS_POR_MES } from '@/lib/metrics'
+import {
+  apartacoesPorMes, eficienciaMatrizes, intervaloPartosPorMatriz, metricasCria, previsaoApartacao, DIAS_POR_MES,
+} from '@/lib/metrics'
 import { addDays } from '@/data/seed'
 import { fmtBRL, fmtDate, fmtIdade, fmtKg, fmtKg1, fmtMesAno, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
@@ -33,7 +36,7 @@ export default function Cria() {
   const [apartarOpen, setApartarOpen] = useState(false)
   const [partoExcluir, setPartoExcluir] = useState<Parto | null>(null)
   const [searchParams] = useSearchParams()
-  const tabInicial = ['partos', 'desmames', 'apartacao', 'ip'].includes(searchParams.get('tab') ?? '')
+  const tabInicial = ['partos', 'desmames', 'apartacao', 'ip', 'eficiencia'].includes(searchParams.get('tab') ?? '')
     ? searchParams.get('tab')!
     : 'partos'
 
@@ -47,6 +50,21 @@ export default function Cria() {
   const apartPag = usePagination(apartacoes, 50)
   const ips = intervaloPartosPorMatriz(state)
   const ipsPag = usePagination(ips, 50)
+
+  const eficiencias = eficienciaMatrizes(state)
+  const efPag = usePagination(eficiencias, 50)
+  const efMedia = eficiencias.length > 0 ? eficiencias.reduce((s, e) => s + e.eficiencia, 0) / eficiencias.length : 0
+  // o exemplo que convence: uma vaca leve e eficiente × uma vaca pesada que desmamou menos
+  const melhorLeve = [...eficiencias].filter((e) => e.classe === 'alta').sort((a, b) => a.vaca.pesoAtual - b.vaca.pesoAtual)[0]
+  const piorPesada = [...eficiencias].filter((e) => e.classe === 'baixa').sort((a, b) => b.vaca.pesoAtual - a.vaca.pesoAtual)[0]
+  const pontosEf = eficiencias.map((e) => ({
+    x: e.vaca.pesoAtual,
+    y: Math.round(e.pesoAj205),
+    brinco: e.vaca.brinco,
+    ef: e.eficiencia,
+  }))
+  const xMin = Math.min(...pontosEf.map((p) => p.x), 400)
+  const xMax = Math.max(...pontosEf.map((p) => p.x), 520)
 
   return (
     <div>
@@ -104,6 +122,7 @@ export default function Cria() {
           <TabsTrigger value="desmames">Desmames ({fmtNum(state.desmames.length)})</TabsTrigger>
           <TabsTrigger value="apartacao">Previsão de apartação ({fmtNum(apartacoes.length)})</TabsTrigger>
           <TabsTrigger value="ip">IP por matriz ({fmtNum(ips.length)})</TabsTrigger>
+          <TabsTrigger value="eficiencia">Eficiência vaca × bezerro ({fmtNum(eficiencias.length)})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="partos">
@@ -320,6 +339,117 @@ export default function Cria() {
                 lista de descarte
               </Link>
               , em Reprodução.
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="eficiencia">
+          {melhorLeve && piorPesada && (
+            <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50/70 px-4 py-3 text-[13px] text-blue-950">
+              <span className="font-semibold">Quem paga a conta é o peso da vaca.</span>{' '}
+              A <strong>{melhorLeve.vaca.brinco}</strong> pesa {fmtNum(melhorLeve.vaca.pesoAtual)} kg e desmamou{' '}
+              {fmtNum(Math.round(melhorLeve.pesoAj205))} kg de bezerro ({fmtNum1(melhorLeve.eficiencia)}% do peso dela). A{' '}
+              <strong>{piorPesada.vaca.brinco}</strong> pesa {fmtNum(piorPesada.vaca.pesoAtual)} kg — come mais — e
+              desmamou {fmtNum(Math.round(piorPesada.pesoAj205))} kg ({fmtNum1(piorPesada.eficiencia)}%).
+            </div>
+          )}
+
+          <div className="mb-3 grid gap-3 xl:grid-cols-3">
+            <div className="rounded-lg border bg-card px-4 pt-3 pb-1 xl:col-span-2">
+              <div className="text-[13px] font-semibold">Peso da vaca × bezerro desmamado (aj. 205 dias)</div>
+              <ResponsiveContainer width="100%" height={240}>
+                <ScatterChart margin={{ top: 10, right: 16, left: -8, bottom: 4 }}>
+                  <CartesianGrid stroke={GRID} />
+                  <XAxis
+                    type="number"
+                    dataKey="x"
+                    name="Peso da vaca"
+                    domain={[Math.floor(xMin / 10) * 10, Math.ceil(xMax / 10) * 10]}
+                    unit=" kg"
+                    {...axisProps}
+                  />
+                  <YAxis type="number" dataKey="y" name="Bezerro aj. 205d" unit=" kg" domain={['dataMin - 10', 'dataMax + 10']} {...axisProps} />
+                  <Tooltip
+                    {...tooltipStyle}
+                    cursor={{ strokeDasharray: '3 3' }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.[0]) return null
+                      const p = payload[0].payload as { brinco: string; x: number; y: number; ef: number }
+                      return (
+                        <div className="rounded-md border bg-card px-2.5 py-1.5 text-xs shadow-sm">
+                          <div className="font-semibold">{p.brinco}</div>
+                          <div className="tnum">Vaca {fmtNum(p.x)} kg · bezerro {fmtNum(p.y)} kg</div>
+                          <div className="tnum text-muted-foreground">Eficiência {fmtNum1(p.ef)}%</div>
+                        </div>
+                      )
+                    }}
+                  />
+                  <ReferenceLine
+                    segment={[
+                      { x: Math.floor(xMin / 10) * 10, y: (Math.floor(xMin / 10) * 10 * efMedia) / 100 },
+                      { x: Math.ceil(xMax / 10) * 10, y: (Math.ceil(xMax / 10) * 10 * efMedia) / 100 },
+                    ]}
+                    stroke="#898781"
+                    strokeDasharray="5 4"
+                  />
+                  <Scatter data={pontosEf} fill={SERIES[0]} fillOpacity={0.65} />
+                </ScatterChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="grid grid-cols-2 gap-2 xl:grid-cols-1">
+              <StatCard
+                label="Eficiência média"
+                value={`${fmtNum1(efMedia)}%`}
+                detail="kg de bezerro por kg de vaca"
+                hint="Peso do bezerro ajustado a 205 dias dividido pelo peso da vaca. Pontos acima da linha tracejada produzem mais que a média do rebanho para o tamanho que têm."
+              />
+              <StatCard
+                label="Matrizes de baixa eficiência"
+                value={fmtNum(eficiencias.filter((e) => e.classe === 'baixa').length)}
+                detail="quartil inferior do rebanho"
+                tone="warning"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-lg border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Matriz</TableHead>
+                  <TableHead className="text-right">Peso da vaca</TableHead>
+                  <TableHead>Bezerro(a)</TableHead>
+                  <TableHead className="text-right">Bezerro aj. 205d</TableHead>
+                  <TableHead className="text-right">Eficiência</TableHead>
+                  <TableHead>Classe</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {efPag.pageItems.map((e) => (
+                  <TableRow key={e.vaca.id} className={e.classe === 'baixa' ? 'bg-amber-50/50 hover:bg-amber-50' : ''}>
+                    <TableCell className="font-medium">
+                      <Link to={`/rebanho/${e.vaca.id}`} className="text-primary hover:underline">{e.vaca.brinco}</Link>
+                    </TableCell>
+                    <TableCell className="tnum text-right">{fmtKg(e.vaca.pesoAtual)}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {e.bezerroBrinco}
+                      {e.fonte === 'projecao' && <span className="ml-1 text-[10px]">(projeção)</span>}
+                    </TableCell>
+                    <TableCell className="tnum text-right">{fmtKg(Math.round(e.pesoAj205))}</TableCell>
+                    <TableCell className="tnum text-right font-semibold">{fmtNum1(e.eficiencia)}%</TableCell>
+                    <TableCell>
+                      <Badge variant={e.classe === 'alta' ? 'good' : e.classe === 'baixa' ? 'warning' : 'default'}>
+                        {e.classe === 'alta' ? 'Eficiente' : e.classe === 'baixa' ? 'Baixa — avaliar' : 'Média'}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <TablePagination {...efPag} />
+            <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+              Bezerro já desmamado usa o peso do desmame; bezerro ao pé (com 90+ dias) usa o peso atual
+              projetado a 205 dias. Classes pelos quartis do próprio rebanho.
             </div>
           </div>
         </TabsContent>
