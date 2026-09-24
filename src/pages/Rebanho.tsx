@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Plus, ShoppingCart, Banknote } from 'lucide-react'
+import { Plus, ShoppingCart, Banknote, FileSpreadsheet } from 'lucide-react'
+import { ImportarPlanilha } from '@/components/ImportarPlanilha'
+import { MapaPastos } from '@/components/MapaPastos'
 import { useStore } from '@/store/useStore'
 import { PageHeader, FormRow } from '@/components/shared'
 import {
@@ -60,16 +62,24 @@ export default function Rebanho() {
   const state = useStore()
   const inv = inventarioPorCategoria(state.animais)
 
+  const [searchParams] = useSearchParams()
   const [filtroCat, setFiltroCat] = useState('')
-  const [filtroLote, setFiltroLote] = useState('')
+  const [filtroLote, setFiltroLote] = useState(() => searchParams.get('lote') ?? '')
   const [filtroBrinco, setFiltroBrinco] = useState('')
   const [filtroRaca, setFiltroRaca] = useState('')
   const [filtroIdade, setFiltroIdade] = useState('')
   const [novoOpen, setNovoOpen] = useState(false)
   const [vendaOpen, setVendaOpen] = useState(false)
   const [compraOpen, setCompraOpen] = useState(false)
-  const [searchParams] = useSearchParams()
-  const tabInicial = searchParams.get('tab') === 'movimentacao' ? 'movimentacao' : 'animais'
+  const [importarOpen, setImportarOpen] = useState(false)
+  const tabParam = searchParams.get('tab')
+  const tabInicial = tabParam === 'movimentacao' || tabParam === 'mapa' ? tabParam : 'animais'
+
+  // link do mapa (?lote=) aplica o filtro mesmo com a página já aberta
+  useEffect(() => {
+    const lote = searchParams.get('lote')
+    if (lote) setFiltroLote(lote)
+  }, [searchParams])
 
   const animaisFiltrados = useMemo(() => {
     return ativos(state.animais)
@@ -103,6 +113,9 @@ export default function Rebanho() {
         subtitle="Inventário, animais e livro de movimentação"
         actions={
           <>
+            <Button variant="outline" onClick={() => setImportarOpen(true)}>
+              <FileSpreadsheet className="h-3.5 w-3.5" /> Importar planilha
+            </Button>
             <Button variant="secondary" onClick={() => setCompraOpen(true)}>
               <ShoppingCart className="h-3.5 w-3.5" /> Comprar animais
             </Button>
@@ -137,6 +150,7 @@ export default function Rebanho() {
         <TabsList>
           <TabsTrigger value="animais">Animais ({fmtNum(animaisFiltrados.length)})</TabsTrigger>
           <TabsTrigger value="movimentacao">Livro de movimentação ({fmtNum(state.movimentacoes.length)})</TabsTrigger>
+          <TabsTrigger value="mapa">Mapa dos pastos ({fmtNum(state.pastos.length)})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="animais">
@@ -253,9 +267,14 @@ export default function Rebanho() {
             <TablePagination {...movPag} />
           </div>
         </TabsContent>
+
+        <TabsContent value="mapa">
+          <MapaPastos />
+        </TabsContent>
       </Tabs>
 
       <NovoAnimalDialog open={novoOpen} onClose={() => setNovoOpen(false)} />
+      <ImportarPlanilha open={importarOpen} onClose={() => setImportarOpen(false)} />
       <VenderAnimaisDialog open={vendaOpen} onClose={() => setVendaOpen(false)} />
       <ComprarAnimaisDialog open={compraOpen} onClose={() => setCompraOpen(false)} />
     </div>

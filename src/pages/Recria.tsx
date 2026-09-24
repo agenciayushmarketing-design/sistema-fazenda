@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { RankingIndividual, SimularCompra } from '@/components/RecriaExtras'
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts'
@@ -42,6 +44,9 @@ export default function Recria() {
   const state = useStore()
   const [pesagemOpen, setPesagemOpen] = useState(false)
   const [loteSel, setLoteSel] = useState(state.lotesRecria[0]?.id ?? '')
+  const [searchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const tabInicial = tabParam === 'ranking' || tabParam === 'simular' ? tabParam : 'lotes'
 
   const gmdMedio = gmdMedioRecria(state)
   const ranking = [...state.lotesRecria].sort((a, b) => gmdUltimos3(b) - gmdUltimos3(a))
@@ -84,6 +89,14 @@ export default function Recria() {
         <StatCard label="Peso-alvo" value="330 / 380 kg" detail="fêmea cobertura / macho terminação" />
       </div>
 
+      <Tabs defaultValue={tabInicial}>
+        <TabsList>
+          <TabsTrigger value="lotes">Lotes ({fmtNum(state.lotesRecria.length)})</TabsTrigger>
+          <TabsTrigger value="ranking">Ranking individual</TabsTrigger>
+          <TabsTrigger value="simular">Simular compra de bezerros</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="lotes">
       <div className="rounded-lg border bg-card">
         <Table>
           <TableHeader>
@@ -179,6 +192,16 @@ export default function Recria() {
           </ChartCard>
         </div>
       )}
+        </TabsContent>
+
+        <TabsContent value="ranking">
+          <RankingIndividual />
+        </TabsContent>
+
+        <TabsContent value="simular">
+          <SimularCompra />
+        </TabsContent>
+      </Tabs>
 
       <NovaPesagemDialog open={pesagemOpen} onClose={() => setPesagemOpen(false)} />
     </div>

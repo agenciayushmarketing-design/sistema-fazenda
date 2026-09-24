@@ -67,6 +67,8 @@ export interface Animal {
   pesagens: Pesagem[]
   sanitario: EventoSanitario[]
   status: 'ativo' | 'vendido' | 'morto'
+  /** foto reduzida (data URL JPEG) — fica só no aparelho */
+  foto?: string
 }
 
 export type TipoMovimentacao =
@@ -324,6 +326,8 @@ export interface OcorrenciaRonda {
   tipo: TipoOcorrencia
   descricao: string
   resolvida: boolean
+  /** foto reduzida (data URL JPEG) tirada no pasto */
+  foto?: string
 }
 
 /** Ronda sanitária: percorrer um pasto e registrar o que foi visto */

@@ -1,7 +1,8 @@
 // Métricas derivadas do estado — funções puras usadas pelas páginas
 import type { Animal, Categoria, FornecimentoSal, Lancamento, Lote, Pasto, SeedData } from '@/data/types'
 import {
-  addDays, diffDays, APARTACAO_DIAS, KG_POR_ARROBA, META_SAL_G_CAB_DIA, TOLERANCIA_SAL, UA_KG,
+  addDays, diffDays, APARTACAO_DIAS, KG_POR_ARROBA, LIMITE_GMD_INDIVIDUAL, META_SAL_G_CAB_DIA,
+  TOLERANCIA_SAL, UA_KG,
 } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
 
@@ -255,6 +256,46 @@ export function consumoDiarioSalKg(data: Pick<SeedData, 'lotes' | 'animais'>): n
     g += ativos(data.animais).filter((a) => a.loteId === lote.id).length * meta
   }
   return g / 1000
+}
+
+// ---- Ranking individual de GMD (recria) ----
+export interface RankingGMD {
+  animal: Animal
+  lote: Lote
+  gmd: number // kg/dia nas últimas 3 pesagens no lote
+  mediaLote: number
+  relativo: number // gmd ÷ média do lote
+  dias: number
+  alerta: boolean
+}
+
+/** Animais dos lotes de recria com 2+ pesagens no lote, ranqueados pelo ganho */
+export function rankingGMDIndividual(data: Pick<SeedData, 'animais' | 'lotes' | 'lotesRecria'>): RankingGMD[] {
+  const porLote = new Map<string, { animal: Animal; gmd: number; dias: number }[]>()
+  for (const lr of data.lotesRecria) {
+    const lista: { animal: Animal; gmd: number; dias: number }[] = []
+    for (const a of ativos(data.animais)) {
+      if (a.loteId !== lr.id) continue
+      const pes = a.pesagens.filter((p) => p.data >= lr.dataEntrada).sort((x, y) => x.data.localeCompare(y.data))
+      if (pes.length < 2) continue
+      const ult = pes.slice(-3)
+      const dias = diffDays(ult[0].data, ult[ult.length - 1].data)
+      if (dias <= 0) continue
+      lista.push({ animal: a, gmd: (ult[ult.length - 1].peso - ult[0].peso) / dias, dias })
+    }
+    if (lista.length > 0) porLote.set(lr.id, lista)
+  }
+  const out: RankingGMD[] = []
+  for (const [loteId, lista] of porLote) {
+    const lote = data.lotes.find((l) => l.id === loteId)
+    if (!lote) continue
+    const media = lista.reduce((s, x) => s + x.gmd, 0) / lista.length
+    for (const x of lista) {
+      const relativo = media > 0 ? x.gmd / media : 1
+      out.push({ ...x, lote, mediaLote: media, relativo, alerta: relativo < LIMITE_GMD_INDIVIDUAL })
+    }
+  }
+  return out.sort((a, b) => b.gmd - a.gmd)
 }
 
 // ---- Eficiência vaca × bezerro ----
@@ -544,7 +585,7 @@ export function metricasLeite(data: Pick<SeedData, 'producaoLeite' | 'leite'>) {
 export interface Alerta {
   tipo:
     | 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario'
-    | 'descarte' | 'conferencia' | 'sal'
+    | 'descarte' | 'conferencia' | 'sal' | 'gmd'
   severidade: 'warning' | 'critical'
   titulo: string
   detalhe: string
@@ -610,6 +651,19 @@ export function alertas(data: SeedData): Alerta[] {
         link: '/os',
       })
     }
+  }
+  const atrasados = rankingGMDIndividual(data).filter((r) => r.alerta)
+  if (atrasados.length > 0) {
+    out.push({
+      tipo: 'gmd',
+      severidade: 'warning',
+      titulo: `${atrasados.length} animal(is) da recria ganhando ${Math.round((1 - LIMITE_GMD_INDIVIDUAL) * 100)}%+ abaixo do lote`,
+      detalhe: atrasados
+        .slice(0, 3)
+        .map((r) => `${r.animal.brinco} (${r.gmd.toFixed(2).replace('.', ',')} kg/dia)`)
+        .join(' · '),
+      link: '/recria?tab=ranking',
+    })
   }
   for (const s of statusSalga(data)) {
     if (s.situacao !== 'acima' && s.situacao !== 'abaixo') continue

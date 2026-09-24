@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { createJSONStorage, persist } from 'zustand/middleware'
+import { toast } from '@/components/ui/toast'
 import { addDays, buildSeed, diffDays, META_SAL_G_CAB_DIA, NOTAS_COCHO } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
 import { CATEGORIA_LABEL } from '@/data/types'
@@ -31,7 +32,48 @@ import type {
 } from '@/data/types'
 
 const STORAGE_KEY = 'fazenda-santa-helena-demo'
-const VERSAO_DEMO = 7
+const VERSAO_DEMO = 8
+
+/** localStorage que nunca derruba o app: se o espaço do navegador encher (fotos!), avisa */
+let avisouEspaco = false
+const armazenamentoSeguro = {
+  getItem: (nome: string) => {
+    try {
+      return localStorage.getItem(nome)
+    } catch {
+      return null
+    }
+  },
+  setItem: (nome: string, valor: string) => {
+    try {
+      localStorage.setItem(nome, valor)
+      avisouEspaco = false
+    } catch {
+      if (!avisouEspaco) {
+        avisouEspaco = true
+        toast('O espaço do navegador encheu — remova algumas fotos ou use "Restaurar demo". A última alteração não foi salva no aparelho.', 'error')
+      }
+    }
+  },
+  removeItem: (nome: string) => {
+    try {
+      localStorage.removeItem(nome)
+    } catch {
+      /* sem storage */
+    }
+  },
+}
+
+export interface LinhaImportAnimal {
+  brinco: string
+  sexo: 'M' | 'F'
+  categoria: Categoria
+  raca: Animal['raca']
+  nascimento: string
+  loteId: string
+  peso: number
+  origem: 'nascimento' | 'compra'
+}
 const chaveFazenda = (p: PerfilDemo) => `fazenda-demo-salva-${p}`
 
 /** Só os dados (sem as actions) — para salvar o snapshot de cada fazenda */
@@ -58,6 +100,12 @@ interface Actions {
   removeAnimal: (id: string, motivo: 'morte' | 'venda') => void
   addPesagemAnimal: (id: string, pes: Pesagem) => void
   addMovimentacao: (m: Omit<Movimentacao, 'id'>) => void
+  /** Planilha → sistema: cadastra os animais validados de uma vez */
+  importarAnimais: (linhas: LinhaImportAnimal[]) => number
+  /** Planilha de pesagens → sistema (animais já existentes) */
+  importarPesagens: (linhas: { animalId: string; data: string; peso: number }[]) => number
+  /** Rodízio de pasto: leva o lote inteiro para outro pasto, registrando no livro */
+  moverLotePasto: (loteId: string, pastoId: string) => void
   /** Venda em lote: baixa os animais, registra no livro e lança a receita no Financeiro.
    *  Com `vencimento`, a receita fica em aberto (a receber); sem, é recebida hoje. */
   venderAnimais: (p: {
@@ -336,6 +384,94 @@ export const useStore = create<Store>()(
             { id: nid('MV'), responsavelId: s.usuarioAtualId, ...m },
           ],
         })),
+
+      importarAnimais: (linhas) => {
+        const s = get()
+        if (linhas.length === 0) return 0
+        const hoje = hojeISO()
+        const novos: Animal[] = linhas.map((l) => ({
+          id: nid('A'),
+          brinco: l.brinco,
+          sexo: l.sexo,
+          categoria: l.categoria,
+          raca: l.raca,
+          nascimento: l.nascimento,
+          loteId: l.loteId,
+          pesoAtual: l.peso,
+          pesagens: [{ data: hoje, peso: l.peso }],
+          sanitario: [],
+          status: 'ativo',
+        }))
+        const movs: Movimentacao[] = linhas.map((l) => ({
+          id: nid('MV'),
+          data: hoje,
+          tipo: l.origem,
+          brinco: l.brinco,
+          categoria: l.categoria,
+          quantidade: 1,
+          destino: s.lotes.find((x) => x.id === l.loteId)?.nome,
+          obs: 'Importado de planilha',
+          responsavelId: s.usuarioAtualId,
+        }))
+        set({
+          animais: [...s.animais, ...novos],
+          movimentacoes: [...s.movimentacoes, ...movs],
+          fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas + novos.length },
+          conferencias: comConferencia(s, 'Importação de planilha', `${novos.length} animal(is) cadastrados`),
+        })
+        return novos.length
+      },
+
+      importarPesagens: (linhas) => {
+        const s = get()
+        if (linhas.length === 0) return 0
+        const porAnimal = new Map<string, Pesagem[]>()
+        for (const l of linhas) {
+          porAnimal.set(l.animalId, [...(porAnimal.get(l.animalId) ?? []), { data: l.data, peso: l.peso }])
+        }
+        set({
+          animais: s.animais.map((a) => {
+            const novas = porAnimal.get(a.id)
+            if (!novas) return a
+            const pesagens = [...a.pesagens, ...novas].sort((x, y) => x.data.localeCompare(y.data))
+            return { ...a, pesagens, pesoAtual: pesagens[pesagens.length - 1].peso }
+          }),
+          conferencias: comConferencia(s, 'Importação de pesagens', `${linhas.length} pesagem(ns) de ${porAnimal.size} animal(is)`),
+        })
+        return linhas.length
+      },
+
+      moverLotePasto: (loteId, pastoId) =>
+        set((s) => {
+          const lote = s.lotes.find((l) => l.id === loteId)
+          if (!lote || lote.pastoId === pastoId) return s
+          const doLote = s.animais.filter((a) => a.status === 'ativo' && a.loteId === loteId)
+          const contagem = new Map<Categoria, number>()
+          for (const a of doLote) contagem.set(a.categoria, (contagem.get(a.categoria) ?? 0) + 1)
+          const categoria = [...contagem.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'vaca'
+          const origem = s.pastos.find((p) => p.id === lote.pastoId)?.nome ?? lote.pastoId
+          const destino = s.pastos.find((p) => p.id === pastoId)?.nome ?? pastoId
+          return {
+            lotes: s.lotes.map((l) => (l.id === loteId ? { ...l, pastoId } : l)),
+            lotesRecria: s.lotesRecria.map((l) => (l.id === loteId ? { ...l, pastoId } : l)),
+            movimentacoes: [
+              ...s.movimentacoes,
+              {
+                id: nid('MV'),
+                data: hojeISO(),
+                tipo: 'transferencia' as const,
+                brinco: `Lote ${lote.nome}`,
+                categoria,
+                quantidade: doLote.length,
+                origem,
+                destino,
+                obs: 'Rodízio de pasto',
+                responsavelId: s.usuarioAtualId,
+              },
+            ],
+            conferencias: comConferencia(s, 'Rodízio de pasto', `${lote.nome}: ${origem} → ${destino}`),
+          }
+        }),
 
       venderAnimais: ({ categoria, qtd, valorTotal, comprador, vencimento }) => {
         const s = get()
@@ -1182,7 +1318,8 @@ export const useStore = create<Store>()(
     }),
     {
       name: STORAGE_KEY,
-      version: VERSAO_DEMO, // v6: equipe, conferências e multi-fazenda
+      version: VERSAO_DEMO,
+      storage: createJSONStorage(() => armazenamentoSeguro),
       // dados persistidos de versões anteriores não têm os novos módulos/perfis → re-semeia
       migrate: () => buildSeed('ciclo_completo') as unknown as Store,
     },

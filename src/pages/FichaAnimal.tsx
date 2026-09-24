@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, type ChangeEvent } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts'
-import { ArrowLeft, LogOut, Pencil, Plus } from 'lucide-react'
+import { ArrowLeft, Camera, LogOut, Pencil, Plus } from 'lucide-react'
+import { reduzirFoto } from '@/lib/imagem'
 import { useStore } from '@/store/useStore'
 import { PageHeader, ChartCard, FormRow } from '@/components/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -92,6 +93,7 @@ export default function FichaAnimal() {
         <Card>
           <CardHeader><CardTitle>Identificação e genealogia</CardTitle></CardHeader>
           <CardContent>
+            <FotoAnimal animal={animal} />
             <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[13px]">
               <dt className="text-muted-foreground">Brinco</dt><dd className="font-medium">{animal.brinco}</dd>
               <dt className="text-muted-foreground">Sexo</dt><dd>{animal.sexo === 'M' ? 'Macho' : 'Fêmea'}</dd>
@@ -237,6 +239,61 @@ export default function FichaAnimal() {
         onClose={() => setSaidaOpen(false)}
         onDone={() => navigate('/rebanho')}
       />
+    </div>
+  )
+}
+
+/** Foto do animal: no celular abre a câmera; a imagem é reduzida e fica só no aparelho */
+function FotoAnimal({ animal }: { animal: Animal }) {
+  const updateAnimal = useStore((s) => s.updateAnimal)
+  const [carregando, setCarregando] = useState(false)
+
+  const escolher = async (e: ChangeEvent<HTMLInputElement>) => {
+    const arq = e.target.files?.[0]
+    e.target.value = ''
+    if (!arq) return
+    setCarregando(true)
+    try {
+      const foto = await reduzirFoto(arq)
+      updateAnimal(animal.id, { foto })
+      toast(`Foto de ${animal.brinco} salva.`)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Não foi possível usar essa imagem.', 'error')
+    } finally {
+      setCarregando(false)
+    }
+  }
+
+  return (
+    <div className="mb-3 flex items-center gap-3">
+      {animal.foto ? (
+        <img src={animal.foto} alt={`Foto do animal ${animal.brinco}`} className="h-20 w-20 rounded-md border object-cover" />
+      ) : (
+        <div className="flex h-20 w-20 flex-col items-center justify-center rounded-md border border-dashed bg-secondary/50 text-muted-foreground">
+          <Camera className="h-5 w-5" />
+          <span className="mt-0.5 text-[10px]">sem foto</span>
+        </div>
+      )}
+      {animal.status === 'ativo' && (
+        <div className="flex flex-col gap-1">
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-secondary">
+            <Camera className="h-3.5 w-3.5" />
+            {carregando ? 'Processando…' : animal.foto ? 'Trocar foto' : 'Tirar / escolher foto'}
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={escolher} />
+          </label>
+          {animal.foto && (
+            <button
+              onClick={() => {
+                updateAnimal(animal.id, { foto: undefined })
+                toast('Foto removida.')
+              }}
+              className="text-left text-[11px] text-muted-foreground hover:text-red-600"
+            >
+              Remover foto
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

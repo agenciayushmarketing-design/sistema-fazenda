@@ -1,6 +1,7 @@
 import { useState, Fragment } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Plus, Syringe, CheckCircle2, X } from 'lucide-react'
+import { Plus, Syringe, CheckCircle2, X, Camera } from 'lucide-react'
+import { reduzirFoto } from '@/lib/imagem'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TablePagination } from '@/components/ui/table'
@@ -189,6 +190,9 @@ export default function Sanitario() {
                                   </Badge>
                                   {o.brinco && <span className="font-medium">{o.brinco}</span>}
                                   <span className={o.resolvida ? 'text-muted-foreground line-through' : ''}>{o.descricao}</span>
+                                  {o.foto && (
+                                    <img src={o.foto} alt="Foto da ocorrência" className="h-16 w-16 rounded border object-cover" />
+                                  )}
                                   {!o.resolvida && o.tipo !== 'morte' && (
                                     <Button
                                       size="sm"
@@ -327,6 +331,7 @@ interface LinhaOcorrencia {
   brinco: string
   tipo: TipoOcorrencia
   descricao: string
+  foto?: string
 }
 
 function RondaDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -353,6 +358,7 @@ function RondaDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
         tipo: l.tipo,
         descricao: l.descricao.trim(),
         resolvida: false,
+        foto: l.foto,
       }))
     const r = addRonda({ data, responsavel: responsavel.trim(), pastoId, obs: obs.trim() || undefined, ocorrencias })
     if (!r.ok) {
@@ -421,6 +427,33 @@ function RondaDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
               className="min-w-0 flex-1"
               aria-label="Descrição"
             />
+            <label
+              className={`inline-flex cursor-pointer items-center rounded p-1 hover:bg-secondary ${l.foto ? 'text-green-700' : 'text-muted-foreground'}`}
+              title={l.foto ? 'Foto anexada — clique para trocar' : 'Anexar foto'}
+            >
+              {l.foto ? (
+                <img src={l.foto} alt="Foto da ocorrência" className="h-6 w-6 rounded object-cover" />
+              ) : (
+                <Camera className="h-3.5 w-3.5" />
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                aria-label="Foto da ocorrência"
+                onChange={async (e) => {
+                  const arq = e.target.files?.[0]
+                  e.target.value = ''
+                  if (!arq) return
+                  try {
+                    setLinha(i, { foto: await reduzirFoto(arq) })
+                  } catch {
+                    toast('Não foi possível usar essa imagem.', 'error')
+                  }
+                }}
+              />
+            </label>
             <button
               onClick={() => setLinhas((ls) => ls.filter((_, j) => j !== i))}
               className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-red-600"

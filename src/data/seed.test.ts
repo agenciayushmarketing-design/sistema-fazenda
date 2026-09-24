@@ -319,6 +319,27 @@ describe.each(PERFIS_LISTA)('coerência do seed — perfil %s', (perfil) => {
     expect(new Set(datas).size).toBe(datas.length)
   })
 
+  it('ranking individual: animais fora da curva existem onde há recria com pesagens individuais', () => {
+    const lotesComPesagem = seed.lotesRecria.filter((lr) =>
+      seed.animais.some(
+        (a) => a.loteId === lr.id && a.pesagens.filter((p) => p.data >= lr.dataEntrada).length >= 2,
+      ),
+    )
+    if (lotesComPesagem.length === 0) return // fazenda de cria pura
+    for (const lr of lotesComPesagem) {
+      const gmds = seed.animais
+        .filter((a) => a.status === 'ativo' && a.loteId === lr.id)
+        .map((a) => {
+          const pes = a.pesagens.filter((p) => p.data >= lr.dataEntrada).slice(-3)
+          return (pes[pes.length - 1].peso - pes[0].peso) / diffDays(pes[0].data, pes[pes.length - 1].data)
+        })
+      const media = gmds.reduce((s, g) => s + g, 0) / gmds.length
+      // média individual próxima do GMD do lote (variação espelhada) e alguém abaixo de 80%
+      expect(Math.abs(media / lr.gmd - 1)).toBeLessThan(0.05)
+      expect(gmds.some((g) => g < media * 0.8)).toBe(true)
+    }
+  })
+
   it('geração é determinística para a mesma data', () => {
     const outra = buildSeed(perfil, HOJE)
     expect(JSON.stringify(outra)).toBe(JSON.stringify(seed))

@@ -64,6 +64,17 @@ export const META_SAL_G_CAB_DIA: Record<Lote['finalidade'], number> = {
 /** Tolerância de desvio do consumo de sal antes de virar alerta */
 export const TOLERANCIA_SAL = 0.2
 
+/** Animal da recria ganhando abaixo disso (fração da média do lote) vira alerta */
+export const LIMITE_GMD_INDIVIDUAL = 0.8
+
+/** Referências de mercado usadas como padrão na calculadora de compra (editáveis na tela) */
+export const MERCADO = {
+  precoArrobaBoi: 310, // R$/@
+  agioBezerroPct: 20, // bezerro costuma sair com ágio sobre a @ do boi
+  custoDiarioCab: 3.2, // R$/cab/dia em recria a pasto (pasto, sal, sanitário, mão de obra)
+  mortalidadePct: 1.5,
+}
+
 /** Escala de leitura de cocho: nota da sobra → ajuste do trato de hoje */
 export const NOTAS_COCHO = [
   { nota: 0, rotulo: 'Lambido', descricao: 'Cocho vazio e lambido — faltou comida', ajuste: 0.1 },
@@ -947,6 +958,8 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
       { rotulo: 'Salga: meta × realizado', link: '/nutricao' },
       { rotulo: 'Leitura de cocho → trato do dia', link: '/nutricao?tab=cocho' },
       { rotulo: 'Eficiência vaca × bezerro', link: '/cria?tab=eficiencia' },
+      { rotulo: 'Simular compra de bezerros', link: '/recria?tab=simular' },
+      { rotulo: 'Mapa dos pastos e rodízio', link: '/rebanho?tab=mapa' },
       { rotulo: 'Custo/@ e fluxo de caixa', link: '/financeiro' },
     ],
   },
@@ -965,6 +978,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
       { rotulo: 'Lista de descarte (vazias + IP)', link: '/reproducao?tab=descarte' },
       { rotulo: 'Salga: meta × realizado', link: '/nutricao' },
       { rotulo: 'Vacinação e ronda sanitária', link: '/sanitario' },
+      { rotulo: 'Mapa dos pastos', link: '/rebanho?tab=mapa' },
     ],
   },
   corte_leite: {
@@ -976,6 +990,7 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
     destaques: [
       { rotulo: 'Fluxo de caixa e contas a pagar', link: '/financeiro' },
       { rotulo: 'Salga e leitura de cocho', link: '/nutricao' },
+      { rotulo: 'Mapa dos pastos e rodízio', link: '/rebanho?tab=mapa' },
       { rotulo: 'Produção de leite diária', link: '/leite' },
       { rotulo: 'Máquinas, horímetro e manutenção', link: '/maquinas' },
       { rotulo: 'Ordens de serviço com acompanhamento', link: '/os' },
@@ -1409,7 +1424,9 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     if (lr.origem === 'propria' && lr.categoria && lr.prefixo) {
       for (let i = 0; i < lr.qtd; i++) {
         const off = i % 2 === 0 ? (i % 20) * 0.9 : -((i - 1) % 20) * 0.9
-        const gmdInd = lr.gmd + (i % 2 === 0 ? 1 : -1) * ((i % 7) * 0.008)
+        // variação natural ± alguns animais fora da curva (base do ranking e do alerta individual)
+        const foraDaCurva = i % 20 === 7 ? 0.7 : i % 20 === 13 ? 1.25 : 1
+        const gmdInd = (lr.gmd + (i % 2 === 0 ? 1 : -1) * ((i % 7) * 0.008)) * foraDaCurva
         const pesoEntradaInd = round1(lr.pesoEntrada + off)
         const pesoAtualInd = round1(pesoEntradaInd + gmdInd * dias)
         const pesagensInd: { data: string; peso: number }[] = []
