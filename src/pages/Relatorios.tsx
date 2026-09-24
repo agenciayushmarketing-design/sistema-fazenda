@@ -410,7 +410,7 @@ export default function Relatorios() {
               key={t}
               onClick={() => setTipo(t)}
               className={cn(
-                'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+                'rounded px-2.5 py-1 text-xs font-medium transition-colors touch:py-2',
                 tipo === t
                   ? 'border border-border bg-white text-foreground shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',

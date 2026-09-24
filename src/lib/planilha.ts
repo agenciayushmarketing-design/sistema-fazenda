@@ -63,7 +63,12 @@ export function lerData(s: string): string | null {
 export function lerNumero(s: string): number | null {
   const t = s.trim().replace(/\s|kg/gi, '')
   if (!t) return null
-  const n = t.includes(',') ? Number(t.replace(/\./g, '').replace(',', '.')) : Number(t)
+  // vírgula = decimal pt-BR (1.250,5); sem vírgula, "1.250" é milhar e "0.6" é decimal
+  const n = t.includes(',')
+    ? Number(t.replace(/\./g, '').replace(',', '.'))
+    : /^-?\d{1,3}(\.\d{3})+$/.test(t)
+      ? Number(t.replace(/\./g, ''))
+      : Number(t)
   return Number.isFinite(n) ? n : null
 }
 

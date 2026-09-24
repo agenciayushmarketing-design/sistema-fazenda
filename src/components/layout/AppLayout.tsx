@@ -192,7 +192,7 @@ export function AppLayout() {
           <button
             onClick={() => setMenuOpen(true)}
             aria-label="Abrir menu"
-            className="rounded-md border p-1.5 text-muted-foreground hover:bg-secondary lg:hidden"
+            className="rounded-md border p-1.5 text-muted-foreground hover:bg-secondary lg:hidden touch:p-2.5"
           >
             <Menu className="h-4 w-4" />
           </button>
@@ -209,7 +209,7 @@ export function AppLayout() {
             <button
               type="submit"
               aria-label="Buscar"
-              className="absolute left-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground"
+              className="absolute left-1 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:text-foreground touch:left-0.5 touch:p-2"
             >
               <Search className="h-3.5 w-3.5" />
             </button>
@@ -218,7 +218,7 @@ export function AppLayout() {
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar brinco…"
               aria-label="Buscar animal por brinco"
-              className="h-7 w-full rounded-md border border-input bg-white pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="h-7 w-full rounded-md border border-input bg-white pl-7 pr-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring touch:h-9 touch:pl-9 touch:text-sm"
             />
           </form>
           <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -236,7 +236,7 @@ export function AppLayout() {
                 const m = equipe.find((x) => x.id === e.target.value)
                 if (m) toast(`Operando como ${m.nome}.`)
               }}
-              className="h-7 w-28 text-xs sm:w-40"
+              className="h-7 w-28 text-xs sm:w-40 touch:h-9"
               aria-label="Quem está operando"
               title="Quem está operando o sistema"
             >
@@ -246,8 +246,9 @@ export function AppLayout() {
             </Select>
             <button
               onClick={() => setResetOpen(true)}
-              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground"
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium text-muted-foreground hover:bg-secondary hover:text-foreground touch:py-2.5"
               title="Restaurar dados da demo"
+              aria-label="Restaurar dados da demo"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               <span className="hidden lg:inline">Restaurar demo</span>

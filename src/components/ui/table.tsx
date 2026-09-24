@@ -68,7 +68,7 @@ function SortableHead({ label, sortKey, sort, onToggle, align = 'left', classNam
       <button
         onClick={() => onToggle(sortKey)}
         className={cn(
-          'inline-flex w-full items-center gap-0.5 uppercase tracking-wide hover:text-foreground',
+          'inline-flex w-full items-center gap-0.5 uppercase tracking-wide hover:text-foreground touch:py-2',
           align === 'right' && 'justify-end',
           active && 'text-foreground',
         )}
@@ -103,7 +103,7 @@ function TablePagination({ page, pages, setPage, from, to, total }: TablePaginat
             onClick={() => setPage(Math.max(0, page - 1))}
             disabled={page === 0}
             aria-label="Página anterior"
-            className="rounded border p-0.5 hover:bg-secondary disabled:opacity-40"
+            className="rounded border p-0.5 hover:bg-secondary disabled:opacity-40 touch:p-2"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
@@ -114,7 +114,7 @@ function TablePagination({ page, pages, setPage, from, to, total }: TablePaginat
             onClick={() => setPage(Math.min(pages - 1, page + 1))}
             disabled={page === pages - 1}
             aria-label="Próxima página"
-            className="rounded border p-0.5 hover:bg-secondary disabled:opacity-40"
+            className="rounded border p-0.5 hover:bg-secondary disabled:opacity-40 touch:p-2"
           >
             <ChevronRight className="h-3.5 w-3.5" />
           </button>

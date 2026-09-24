@@ -404,7 +404,7 @@ function ComprarAnimaisDialog({ open, onClose }: { open: boolean; onClose: () =>
       setErro('Para compra a prazo, o vencimento precisa ser uma data futura.')
       return
     }
-    comprarAnimais({
+    const r = comprarAnimais({
       categoria,
       qtd: q,
       pesoMedio: p,
@@ -413,6 +413,10 @@ function ComprarAnimaisDialog({ open, onClose }: { open: boolean; onClose: () =>
       loteId,
       vencimento: condicao === 'prazo' ? vencimento : undefined,
     })
+    if (!r.ok) {
+      setErro(r.erro ?? 'Não foi possível registrar a compra.')
+      return
+    }
     toast(
       condicao === 'prazo'
         ? `Compra de ${q} ${CATEGORIA_LABEL[categoria].toLowerCase()}(s) registrada — ${fmtBRL(v)} a pagar em ${fmtDate(vencimento)}.`
@@ -491,16 +495,32 @@ function NovoAnimalDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const [categoria, setCategoria] = useState<Categoria>('vaca')
   const [raca, setRaca] = useState<'Nelore' | 'Nelore PO'>('Nelore')
   const [nascimento, setNascimento] = useState('')
-  const [loteId, setLoteId] = useState('L-SR')
+  const [loteId, setLoteId] = useState(lotes[0]?.id ?? '')
   const [peso, setPeso] = useState('')
   const [origem, setOrigem] = useState<'nascimento' | 'compra'>('compra')
 
+  const [erro, setErro] = useState('')
+  const animais = useStore((s) => s.animais)
+
   const salvar = () => {
-    if (!brinco || !nascimento || !peso) return
+    const b = brinco.trim()
+    if (!b || !nascimento || !(Number(peso) > 0)) {
+      setErro('Informe brinco, nascimento e peso.')
+      return
+    }
+    if (nascimento > hojeISO()) {
+      setErro('A data de nascimento não pode ser no futuro.')
+      return
+    }
+    if (animais.some((a) => a.status === 'ativo' && a.brinco.toLowerCase() === b.toLowerCase())) {
+      setErro(`Já existe um animal ativo com o brinco ${b}.`)
+      return
+    }
+    const brinco_ = b
     const sexo = ['bezerra', 'novilha_13_24', 'novilha_24', 'vaca'].includes(categoria) ? 'F' : 'M'
     const novo: Animal = {
       id: `A-M${Date.now()}`,
-      brinco,
+      brinco: brinco_,
       sexo,
       categoria,
       raca,
@@ -514,14 +534,14 @@ function NovoAnimalDialog({ open, onClose }: { open: boolean; onClose: () => voi
     addAnimal(novo, {
       data: hojeISO(),
       tipo: origem,
-      brinco,
+      brinco: brinco_,
       categoria,
       quantidade: 1,
       destino: lotes.find((l) => l.id === loteId)?.nome,
       obs: 'Cadastro manual',
     })
-    toast(`Animal ${brinco} cadastrado no rebanho.`)
-    setBrinco(''); setPeso(''); setNascimento('')
+    toast(`Animal ${brinco_} cadastrado no rebanho.`)
+    setBrinco(''); setPeso(''); setNascimento(''); setErro('')
     onClose()
   }
 
@@ -564,6 +584,9 @@ function NovoAnimalDialog({ open, onClose }: { open: boolean; onClose: () => voi
           </Select>
         </FormRow>
       </div>
+      {erro && (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">{erro}</p>
+      )}
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
         <Button onClick={salvar}>Salvar</Button>

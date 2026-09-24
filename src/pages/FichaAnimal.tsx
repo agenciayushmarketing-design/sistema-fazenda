@@ -232,7 +232,7 @@ export default function FichaAnimal() {
         </Card>
       </div>
 
-      <EditarAnimalDialog animal={animal} open={editOpen} onClose={() => setEditOpen(false)} />
+      <EditarAnimalDialog key={animal.id + String(editOpen)} animal={animal} open={editOpen} onClose={() => setEditOpen(false)} />
       <SaidaAnimalDialog
         animal={animal}
         open={saidaOpen}
@@ -334,6 +334,11 @@ function EditarAnimalDialog({ animal, open, onClose }: { animal: Animal; open: b
   const [ecc, setEcc] = useState(animal.ecc?.toString() ?? '')
 
   const salvar = () => {
+    const eccNum = ecc === '' ? undefined : Number(ecc.replace(',', '.'))
+    if (eccNum !== undefined && !(eccNum >= 1 && eccNum <= 5)) {
+      toast('O escore corporal (ECC) vai de 1 a 5.', 'error')
+      return
+    }
     const patch: Partial<Animal> = {}
     if (loteId !== animal.loteId) {
       patch.loteId = loteId
@@ -362,7 +367,7 @@ function EditarAnimalDialog({ animal, open, onClose }: { animal: Animal; open: b
       })
     }
     if (ecc !== (animal.ecc?.toString() ?? '')) {
-      patch.ecc = ecc === '' ? undefined : Number(ecc)
+      patch.ecc = eccNum
     }
     if (Object.keys(patch).length > 0) {
       updateAnimal(animal.id, patch)

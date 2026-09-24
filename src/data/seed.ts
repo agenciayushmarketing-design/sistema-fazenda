@@ -1039,7 +1039,10 @@ const NOMES_TOUROS = [
 // ---------------------------------------------------------------------
 
 export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string): SeedData {
-  const today = hoje ?? new Date().toISOString().slice(0, 10)
+  const agora = new Date()
+  const today =
+    hoje ??
+    `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`
   const P = PERFIS[perfil]
   const rng = mulberry32(P.seedRandom)
 

@@ -610,10 +610,14 @@ function NovoPartoDialog({ open, onClose }: { open: boolean; onClose: () => void
   const [sexo, setSexo] = useState<'M' | 'F'>('M')
   const [peso, setPeso] = useState('32')
   const [dif, setDif] = useState('1')
+  const [erro, setErro] = useState('')
 
   const salvar = () => {
-    if (!matriz || !bezerro) return
-    addParto({
+    if (!matriz.trim() || !bezerro.trim()) {
+      setErro('Informe o brinco da matriz e o do bezerro.')
+      return
+    }
+    const r = addParto({
       data,
       matrizBrinco: matriz,
       bezerroBrinco: bezerro,
@@ -622,8 +626,12 @@ function NovoPartoDialog({ open, onClose }: { open: boolean; onClose: () => void
       dificuldade: Number(dif) as 1 | 2 | 3 | 4 | 5,
       estacaoId: estacoes.find((e) => e.status === 'encerrada')?.id ?? 'EM-PASS',
     })
-    toast(`Parto registrado — ${bezerro} criado automaticamente no Rebanho.`)
-    setMatriz(''); setBezerro('')
+    if (!r.ok) {
+      setErro(r.erro ?? 'Não foi possível registrar o parto.')
+      return
+    }
+    toast(`Parto registrado — ${bezerro.trim()} criado automaticamente no Rebanho.`)
+    setMatriz(''); setBezerro(''); setErro('')
     onClose()
   }
 
@@ -648,6 +656,11 @@ function NovoPartoDialog({ open, onClose }: { open: boolean; onClose: () => void
           </Select>
         </FormRow>
       </div>
+      {erro && (
+        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">
+          {erro}
+        </p>
+      )}
       <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
         O bezerro é criado automaticamente no Rebanho (lote da matriz) e registrado no livro de movimentação.
       </p>
@@ -660,15 +673,20 @@ function NovoPartoDialog({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 function NovoDesmameDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { partos, lotesRecria, addDesmame } = useStore()
+  const { partos, lotesRecria, lotes, addDesmame } = useStore()
+  // fazenda só de cria não tem lote de recria: aí qualquer lote serve de destino
+  const destinos = lotesRecria.length > 0 ? lotesRecria : lotes
   const [data, setData] = useState(hojeISO())
   const [brinco, setBrinco] = useState('')
   const [peso, setPeso] = useState('195')
-  const [loteId, setLoteId] = useState('R1')
+  const [loteId, setLoteId] = useState(destinos[0]?.id ?? '')
   const [erro, setErro] = useState('')
 
   const salvar = () => {
-    if (!brinco) return
+    if (!brinco.trim()) {
+      setErro('Informe o brinco do bezerro.')
+      return
+    }
     const parto = partos.find((p) => p.bezerroBrinco === brinco)
     const idade = parto ? Math.max(1, Math.round((new Date(data).getTime() - new Date(parto.data).getTime()) / 86400000)) : 210
     const r = addDesmame({ data, bezerroBrinco: brinco.trim(), peso: Number(peso), idadeDias: idade, loteDestinoId: loteId })
@@ -676,7 +694,7 @@ function NovoDesmameDialog({ open, onClose }: { open: boolean; onClose: () => vo
       setErro(r.erro ?? 'Não foi possível registrar o desmame.')
       return
     }
-    toast(`Desmame registrado — ${brinco.trim()} transferido para o lote de recria.`)
+    toast(`Desmame registrado — ${brinco.trim()} transferido para ${destinos.find((l) => l.id === loteId)?.nome ?? 'o lote de destino'}.`)
     setBrinco(''); setErro('')
     onClose()
   }
@@ -689,7 +707,7 @@ function NovoDesmameDialog({ open, onClose }: { open: boolean; onClose: () => vo
         <FormRow label="Peso ao desmame (kg)"><Input type="number" value={peso} onChange={(e) => setPeso(e.target.value)} /></FormRow>
         <FormRow label="Lote de destino">
           <Select value={loteId} onChange={(e) => setLoteId(e.target.value)}>
-            {lotesRecria.map((l) => (
+            {destinos.map((l) => (
               <option key={l.id} value={l.id}>{l.nome}</option>
             ))}
           </Select>

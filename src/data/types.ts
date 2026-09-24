@@ -112,6 +112,8 @@ export interface Parto {
   pesoNascer: number
   dificuldade: 1 | 2 | 3 | 4 | 5 // 1 = sem auxílio
   estacaoId: string
+  /** animal criado por este parto (lançamentos feitos no app) */
+  animalId?: string
 }
 
 export interface Desmame {

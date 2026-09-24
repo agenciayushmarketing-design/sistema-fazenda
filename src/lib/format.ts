@@ -46,6 +46,16 @@ export function fmtIdade(nascimento: string): string {
   return rest > 0 ? `${anos}a ${rest}m` : `${anos}a`
 }
 
+const doisDigitos = (n: number) => String(n).padStart(2, '0')
+
+/** Data de hoje no fuso do aparelho (toISOString usaria UTC: depois das 21h no Brasil já seria "amanhã") */
 export function hojeISO(): string {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  return `${d.getFullYear()}-${doisDigitos(d.getMonth() + 1)}-${doisDigitos(d.getDate())}`
+}
+
+/** Data e hora locais (yyyy-mm-ddThh:mm:ss) — carimbo dos lançamentos */
+export function agoraISO(): string {
+  const d = new Date()
+  return `${hojeISO()}T${doisDigitos(d.getHours())}:${doisDigitos(d.getMinutes())}:${doisDigitos(d.getSeconds())}`
 }

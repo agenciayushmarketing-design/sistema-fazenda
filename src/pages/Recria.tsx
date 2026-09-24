@@ -15,21 +15,13 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
-import { gmdMedioRecria, qtdLoteRecria, statusSalga } from '@/lib/metrics'
+import { gmdMedioRecria, gmdUltimos3, qtdLoteRecria, statusSalga } from '@/lib/metrics'
 import { addDays, diffDays } from '@/data/seed'
 import { fmtDate, fmtGMD, fmtKg1, fmtNum, hojeISO } from '@/lib/format'
 import { SERIES, GRID, MUTED_INK, axisProps, tooltipStyle } from '@/lib/chart'
 import type { LoteRecria } from '@/data/types'
 
 /** GMD dos últimos 3 pesos do lote */
-function gmdUltimos3(lote: LoteRecria): number {
-  const pes = [...lote.pesagens].sort((a, b) => a.data.localeCompare(b.data))
-  if (pes.length < 2) return lote.gmd
-  const ult = pes.slice(-3)
-  const dias = diffDays(ult[0].data, ult[ult.length - 1].data)
-  return dias > 0 ? (ult[ult.length - 1].peso - ult[0].peso) / dias : lote.gmd
-}
-
 function projecaoAlvo(lote: LoteRecria): { data: string; dias: number } | null {
   const pes = [...lote.pesagens].sort((a, b) => a.data.localeCompare(b.data))
   const atual = pes[pes.length - 1]
@@ -142,7 +134,7 @@ export default function Recria() {
                         <Link
                           to="/nutricao"
                           onClick={(e) => e.stopPropagation()}
-                          className="mt-0.5 block text-[10px] font-normal text-amber-800 hover:underline"
+                          className="mt-0.5 block text-[10px] font-normal text-amber-800 hover:underline touch:py-1.5 touch:text-[11px]"
                         >
                           {sal?.situacao === 'abaixo'
                             ? 'Sal abaixo da meta — conferir cocho'
@@ -241,7 +233,7 @@ function NovaPesagemDialog({ open, onClose }: { open: boolean; onClose: () => vo
         <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
           <Scale className="h-3.5 w-3.5" /> Cadência recomendada: 28 dias
         </div>
-        <div className="flex gap-2">
+        <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={salvar}>Salvar</Button>
         </div>

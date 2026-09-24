@@ -35,7 +35,7 @@ export function TabsTrigger({ value, children }: { value: string; children: Reac
     <button
       onClick={() => ctx.setValue(value)}
       className={cn(
-        'rounded px-2.5 py-1 text-xs font-medium transition-colors',
+        'rounded px-2.5 py-1 text-xs font-medium transition-colors touch:py-2',
         active ? 'bg-white shadow-sm text-foreground border border-border' : 'text-muted-foreground hover:text-foreground',
       )}
     >

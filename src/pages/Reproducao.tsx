@@ -128,7 +128,7 @@ export default function Reproducao() {
                     <TableCell className="tnum text-right">{t.vacasRepasse}</TableCell>
                     <TableCell className="tnum text-right">{t.prenhezesRepasse}</TableCell>
                     <TableCell className="tnum text-right pr-4 font-semibold">
-                      {fmtPct((t.prenhezesRepasse / t.vacasRepasse) * 100)}
+                      {t.vacasRepasse > 0 ? fmtPct((t.prenhezesRepasse / t.vacasRepasse) * 100) : "—"}
                     </TableCell>
                   </TableRow>
                 ))}

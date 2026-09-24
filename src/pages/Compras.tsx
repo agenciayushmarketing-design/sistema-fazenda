@@ -298,7 +298,7 @@ function NovoPedidoDialog({ open, onClose }: { open: boolean; onClose: () => voi
       return
     }
     addPedido({
-      numero: `PC-2025-${String(70 + pedidos.length).padStart(3, '0')}`,
+      numero: proximoNumeroPedido(pedidos.map((p) => p.numero)),
       fornecedor: fornecedor.trim(),
       data: hojeISO(),
       status: 'pendente',
@@ -413,11 +413,17 @@ function NovoPedidoDialog({ open, onClose }: { open: boolean; onClose: () => voi
 
       <div className="mt-4 flex items-center justify-between">
         <div className="tnum text-sm font-semibold">Total: {fmtBRL(totalGeral)}</div>
-        <div className="flex gap-2">
+        <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button onClick={salvar}>Criar pedido</Button>
         </div>
       </div>
     </Dialog>
   )
+}
+
+/** PC-<ano>-<seq>: sequência continua do maior número já usado (excluir pedido não repete número) */
+function proximoNumeroPedido(numeros: string[]): string {
+  const maior = numeros.reduce((m, n) => Math.max(m, Number(n.match(/(\d+)$/)?.[1] ?? 0)), 0)
+  return `PC-${hojeISO().slice(0, 4)}-${String(maior + 1).padStart(3, '0')}`
 }

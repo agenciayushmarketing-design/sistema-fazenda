@@ -160,7 +160,7 @@ export default function Maquinas() {
         </Card>
       )}
 
-      <NovaManutencaoDialog open={manutOpen} onClose={() => setManutOpen(false)} maquinaInicial={maquinaSel} />
+      <NovaManutencaoDialog key={String(manutOpen) + maquinaSel} open={manutOpen} onClose={() => setManutOpen(false)} maquinaInicial={maquinaSel} />
     </div>
   )
 }

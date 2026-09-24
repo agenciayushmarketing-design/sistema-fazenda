@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
+import { lerNumero } from '@/lib/planilha'
 import { gmdMedioRecria, rankingGMDIndividual } from '@/lib/metrics'
 import { addDays, KG_POR_ARROBA, LIMITE_GMD_INDIVIDUAL, MERCADO } from '@/data/seed'
 import { fmtBRL, fmtDate, fmtGMD, fmtKg1, fmtNum, fmtNum1, fmtPct, hojeISO } from '@/lib/format'
@@ -154,7 +155,7 @@ export function SimularCompra() {
   const [mortalidade, setMortalidade] = useState(String(MERCADO.mortalidadePct).replace('.', ','))
   const [loteId, setLoteId] = useState(state.lotesRecria[0]?.id ?? state.lotes[0]?.id ?? '')
 
-  const n = (s: string) => Number(s.replace(/\./g, '').replace(',', '.')) || 0
+  const n = (s: string) => lerNumero(s) ?? 0
   const q = n(qtd)
   const pc = n(pesoCompra)
   const vc = n(valorCab)
@@ -275,15 +276,19 @@ export function SimularCompra() {
                 </FormRow>
                 <Button
                   onClick={() => {
-                    comprarAnimais({
+                    const r = comprarAnimais({
                       categoria: pc >= 240 ? 'garrote' : 'bezerro',
                       qtd: Math.round(q),
                       pesoMedio: pc,
-                      valorTotal: custoCompra,
+                      valorTotal: Math.round(q) * vc,
                       vendedor: 'Compra simulada',
                       loteId,
                     })
-                    toast(`${fmtNum(q)} animais comprados por ${fmtBRL(custoCompra)} — entraram no rebanho e a despesa foi lançada.`)
+                    if (!r.ok) {
+                      toast(r.erro ?? 'Não foi possível fechar a compra.', 'error')
+                      return
+                    }
+                    toast(`${fmtNum(Math.round(q))} animais comprados por ${fmtBRL(custoCompra)} — entraram no rebanho e a despesa foi lançada.`)
                   }}
                 >
                   <ShoppingCart className="h-3.5 w-3.5" /> Fechar esta compra

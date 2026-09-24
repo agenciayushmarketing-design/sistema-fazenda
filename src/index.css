@@ -54,6 +54,20 @@
   }
 }
 
+/* Toque: links e botões de ícone dentro das tabelas ficam fáceis de acertar com o dedo */
+@media (pointer: coarse) {
+  main td a {
+    display: inline-block;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+  main td button,
+  [role='dialog'] td button {
+    min-height: 32px;
+    min-width: 32px;
+  }
+}
+
 @media print {
   body {
     background: white;

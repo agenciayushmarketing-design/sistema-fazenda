@@ -1,5 +1,5 @@
 // Métricas derivadas do estado — funções puras usadas pelas páginas
-import type { Animal, Categoria, FornecimentoSal, Lancamento, Lote, Pasto, SeedData } from '@/data/types'
+import type { Animal, Categoria, FornecimentoSal, Lancamento, Lote, LoteRecria, Pasto, SeedData } from '@/data/types'
 import {
   addDays, diffDays, APARTACAO_DIAS, KG_POR_ARROBA, LIMITE_GMD_INDIVIDUAL, META_SAL_G_CAB_DIA,
   TOLERANCIA_SAL, UA_KG,
@@ -36,17 +36,20 @@ export function uaPorPasto(data: Pick<SeedData, 'animais' | 'lotes' | 'pastos'>)
   return data.pastos.map((p) => ({ pasto: p, ua: (kgPorPasto.get(p.id) ?? 0) / UA_KG }))
 }
 
-/** GMD médio ponderado dos lotes de recria */
-export function gmdMedioRecria(data: Pick<SeedData, 'lotesRecria'>): number {
-  let kg = 0
-  let cabDias = 0
-  const hoje = hojeISO()
-  for (const l of data.lotesRecria) {
-    const dias = Math.max(diffDays(l.dataEntrada, hoje), 1)
-    kg += l.qtd * l.gmd * dias
-    cabDias += l.qtd * dias
-  }
-  return cabDias > 0 ? kg / cabDias : 0
+/** Pesagens do lote em ordem de data, sempre começando pela entrada */
+function pesagensLote(l: LoteRecria) {
+  const pes = [...l.pesagens].sort((a, b) => a.data.localeCompare(b.data))
+  if (pes.length === 0 || pes[0].data > l.dataEntrada) pes.unshift({ data: l.dataEntrada, peso: l.pesoEntrada })
+  return pes
+}
+
+/** GMD recente do lote: últimas 3 pesagens (reage na hora a uma pesagem nova) */
+export function gmdUltimos3(l: LoteRecria): number {
+  const pes = pesagensLote(l)
+  if (pes.length < 2) return l.gmd
+  const ult = pes.slice(-3)
+  const dias = diffDays(ult[0].data, ult[ult.length - 1].data)
+  return dias > 0 ? (ult[ult.length - 1].peso - ult[0].peso) / dias : l.gmd
 }
 
 /** Quantidade real de um lote de recria = animais ativos alocados nele */
@@ -54,12 +57,34 @@ export function qtdLoteRecria(animais: Animal[], loteId: string): number {
   return ativos(animais).filter((a) => a.loteId === loteId).length
 }
 
+/** Cabeças do lote: animais ativos nele; sem animais individuais, o número cadastrado */
+function cabecasLote(l: LoteRecria, animais?: Animal[]): number {
+  const reais = animais ? qtdLoteRecria(animais, l.id) : 0
+  return reais > 0 ? reais : l.qtd
+}
+
+/** GMD médio dos lotes de recria desde a entrada, ponderado por cabeça×dia — vem das pesagens */
+export function gmdMedioRecria(data: Pick<SeedData, 'lotesRecria'> & { animais?: Animal[] }): number {
+  let kg = 0
+  let cabDias = 0
+  for (const l of data.lotesRecria) {
+    const pes = pesagensLote(l)
+    const ult = pes[pes.length - 1]
+    const dias = diffDays(l.dataEntrada, ult.data)
+    const cab = cabecasLote(l, data.animais)
+    if (dias <= 0) continue
+    kg += cab * (ult.peso - l.pesoEntrada)
+    cabDias += cab * dias
+  }
+  return cabDias > 0 ? kg / cabDias : 0
+}
+
 /** Ganho total de kg dos lotes ativos (recria + terminação) desde a entrada */
 export function ganhoKgTotal(data: Pick<SeedData, 'lotesRecria' | 'animais'>): number {
-  const hoje = hojeISO()
   let kg = 0
   for (const l of data.lotesRecria) {
-    kg += l.qtd * l.gmd * Math.max(diffDays(l.dataEntrada, hoje), 0)
+    const pes = pesagensLote(l)
+    kg += cabecasLote(l, data.animais) * Math.max(pes[pes.length - 1].peso - l.pesoEntrada, 0)
   }
   for (const a of ativos(data.animais)) {
     if (a.categoria !== 'boi_terminacao' || a.pesagens.length === 0) continue
@@ -105,7 +130,9 @@ export function metricasReproducao(
   const prenhasIATF = prenhas.filter((d) => d.origemPrenhez === 'IATF')
   const pendentes = dgs.filter((d) => d.resultado === 'pendente')
   const expostas = estacao?.matrizesExpostas ?? 0
-  const dosesIATF = data.protocolosIATF.reduce((s, p) => s + p.doses, 0)
+  // protocolo agendado (IA ainda por vir) não entra no denominador da taxa
+  const hojeRep = hojeISO()
+  const dosesIATF = data.protocolosIATF.filter((p) => p.dataIA <= hojeRep).reduce((s, p) => s + p.doses, 0)
 
   const custoRepro = data.pedidos
     .filter((p) => p.status === 'recebido')
@@ -381,6 +408,7 @@ export function listaVazias(data: Pick<SeedData, 'diagnosticos' | 'estacoes' | '
         descarte: diasVazia >= data.config.diasVaziaDescarte,
       }
     })
+    .filter((v) => v.animal) // já vendida/morta sai da lista
     .sort((a, b) => b.diasVazia - a.diasVazia)
 }
 
@@ -391,7 +419,7 @@ export function matrizesIPEstourado(
   const porBrinco = new Map(ativos(data.animais).map((a) => [a.brinco, a]))
   return intervaloPartosPorMatriz(data)
     .map((ip) => ({ ...ip, ipMeses: ip.ipDias / DIAS_POR_MES, animal: porBrinco.get(ip.matrizBrinco) }))
-    .filter((ip) => ip.ipMeses > data.config.toleranciaIPMeses)
+    .filter((ip) => ip.animal && ip.ipMeses > data.config.toleranciaIPMeses)
 }
 
 /** União (sem duplicar matriz) dos dois critérios de descarte — alimenta o alerta */
@@ -520,10 +548,10 @@ export function metricasFinanceiro(data: Pick<SeedData, 'lancamentos'>) {
 
   // fluxo de caixa dos últimos 12 meses (regime de caixa: data de pagamento)
   const fluxo: { mes: string; receitas: number; despesas: number }[] = []
+  const [anoH, mesH] = hoje.split('-').map(Number)
   for (let m = 11; m >= 0; m--) {
-    const ref = addDays(hoje, -m * 30).slice(0, 7)
-    if (fluxo.some((f) => f.mes === `${ref}-01`)) continue
-    fluxo.push({ mes: `${ref}-01`, receitas: 0, despesas: 0 })
+    const d = new Date(anoH, mesH - 1 - m, 1) // meses de calendário (30 dias pulava/duplicava mês)
+    fluxo.push({ mes: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`, receitas: 0, despesas: 0 })
   }
   for (const l of data.lancamentos) {
     if (!l.pagamento) continue

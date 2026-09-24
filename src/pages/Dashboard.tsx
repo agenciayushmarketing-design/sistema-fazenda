@@ -44,7 +44,7 @@ function BannerPerfil({ perfil }: { perfil: PerfilDemo }) {
           }
         }}
         aria-label="Fechar apresentação"
-        className="absolute right-2 top-2 rounded p-1 text-blue-900/50 hover:bg-blue-100 hover:text-blue-900"
+        className="absolute right-2 top-2 rounded p-1 text-blue-900/50 hover:bg-blue-100 hover:text-blue-900 touch:right-1 touch:top-1 touch:p-2.5"
       >
         <X className="h-3.5 w-3.5" />
       </button>
@@ -58,7 +58,7 @@ function BannerPerfil({ perfil }: { perfil: PerfilDemo }) {
           <Link
             key={d.rotulo}
             to={d.link}
-            className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2 py-1 text-[11px] font-medium text-blue-900 hover:bg-blue-100"
+            className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2 py-1 text-[11px] font-medium text-blue-900 hover:bg-blue-100 touch:px-3 touch:py-2 touch:text-xs"
           >
             {d.rotulo}
             <ArrowRight className="h-3 w-3" />
@@ -135,7 +135,7 @@ export default function Dashboard() {
     <div>
       <PageHeader
         title="Dashboard"
-        subtitle={`${state.fazenda.nome} — ${PERFIL_INFO[state.perfil].descricao}`}
+        subtitle={`${state.fazenda.nome} — ${PERFIL_INFO[state.perfil].descricao.replace(/[\d.]+ cabeças/, `${fmtNum(total)} cabeças`)}`}
       />
 
       <BannerPerfil perfil={state.perfil} />

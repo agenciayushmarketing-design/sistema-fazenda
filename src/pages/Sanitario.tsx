@@ -365,7 +365,8 @@ function RondaDialog({ open, onClose }: { open: boolean; onClose: () => void }) 
       setErro(r.erro ?? 'Não foi possível registrar a ronda.')
       return
     }
-    const mortes = ocorrencias.filter((o) => o.tipo === 'morte').length
+    // só morte com brinco dá baixa no rebanho
+    const mortes = ocorrencias.filter((o) => o.tipo === 'morte' && o.brinco).length
     toast(
       mortes > 0
         ? `Ronda registrada — ${mortes} baixa(s) por morte aplicada(s) no rebanho.`

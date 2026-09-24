@@ -370,3 +370,43 @@ describe('perfil corte_leite — leite', () => {
     expect(lactacao.length).toBe(seed.leite!.vacasLactacao)
   })
 })
+
+// ---- regras corrigidas na revisão ----
+import { lerNumero } from '@/lib/planilha'
+import { gmdMedioRecria, metricasFinanceiro } from '@/lib/metrics'
+
+describe('leitura de números digitados', () => {
+  it('aceita decimal com ponto ou vírgula e milhar pt-BR', () => {
+    expect(lerNumero('0.6')).toBe(0.6)
+    expect(lerNumero('0,6')).toBe(0.6)
+    expect(lerNumero('320.5')).toBe(320.5)
+    expect(lerNumero('1.250')).toBe(1250)
+    expect(lerNumero('1.320,5')).toBe(1320.5)
+    expect(lerNumero('abc')).toBeNull()
+  })
+})
+
+describe('indicadores reagem aos lançamentos', () => {
+  const seed = buildSeed('ciclo_completo', HOJE)
+
+  it('GMD médio da recria vem das pesagens e muda com uma pesagem nova', () => {
+    const antes = gmdMedioRecria(seed)
+    expect(antes).toBeGreaterThan(0.3)
+    expect(antes).toBeLessThan(1.2)
+    const l = seed.lotesRecria[0]
+    const ult = [...l.pesagens].sort((a, b) => a.data.localeCompare(b.data)).at(-1)!
+    const comPesagem = {
+      ...seed,
+      lotesRecria: seed.lotesRecria.map((x) =>
+        x.id === l.id ? { ...x, pesagens: [...x.pesagens, { data: HOJE, peso: ult.peso + 40 }] } : x,
+      ),
+    }
+    expect(gmdMedioRecria(comPesagem)).not.toBeCloseTo(antes, 4)
+  })
+
+  it('fluxo de caixa tem 12 meses de calendário distintos', () => {
+    const meses = metricasFinanceiro(seed).fluxo12m.map((f) => f.mes)
+    expect(meses.length).toBe(12)
+    expect(new Set(meses).size).toBe(12)
+  })
+})

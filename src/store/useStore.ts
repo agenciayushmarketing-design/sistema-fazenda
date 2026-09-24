@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { toast } from '@/components/ui/toast'
 import { addDays, buildSeed, diffDays, META_SAL_G_CAB_DIA, NOTAS_COCHO } from '@/data/seed'
-import { hojeISO } from '@/lib/format'
+import { agoraISO, hojeISO } from '@/lib/format'
 import { CATEGORIA_LABEL } from '@/data/types'
 import type {
   Animal,
@@ -125,10 +125,10 @@ interface Actions {
     vendedor?: string
     loteId: string
     vencimento?: string
-  }) => void
+  }) => { ok: boolean; erro?: string }
 
   // Cria — mutações mantêm as identidades do seed (parto cria o animal, etc.)
-  addParto: (p: Omit<Parto, 'id'>) => void
+  addParto: (p: Omit<Parto, 'id'>) => { ok: boolean; erro?: string }
   removeParto: (id: string) => { ok: boolean; erro?: string }
   addDesmame: (d: Omit<Desmame, 'id'>) => { ok: boolean; erro?: string }
   /** Apartação em lote: desmama os bezerros mais velhos ao pé — transferindo para um
@@ -223,8 +223,11 @@ interface Actions {
 
 export type Store = SeedData & Actions
 
-let seq = 1000
-const nid = (prefix: string) => `${prefix}-${++seq}`
+// IDs únicos entre recargas: o contador sozinho recomeçava a cada abertura da página e
+// repetia IDs já salvos (editar/vender um registro alterava outro com o mesmo ID)
+let seq = 0
+const sessao = Date.now().toString(36)
+const nid = (prefix: string) => `${prefix}-${sessao}${(++seq).toString(36)}`
 
 /** Se quem está operando é do campo, o lançamento entra na fila de conferência */
 function comConferencia(s: Store, tipo: string, resumo: string): Conferencia[] {
@@ -237,7 +240,7 @@ function comConferencia(s: Store, tipo: string, resumo: string): Conferencia[] {
       tipo,
       resumo,
       responsavelId: usuario.id,
-      lancadoEm: new Date().toISOString(),
+      lancadoEm: agoraISO(),
       status: 'pendente',
     },
   ]
@@ -300,7 +303,7 @@ export const useStore = create<Store>()(
         set((s) => ({
           conferencias: s.conferencias.map((c) =>
             c.id === id && c.status === 'pendente'
-              ? { ...c, status: 'aprovado' as const, conferidoPorId: s.usuarioAtualId, conferidoEm: new Date().toISOString() }
+              ? { ...c, status: 'aprovado' as const, conferidoPorId: s.usuarioAtualId, conferidoEm: agoraISO() }
               : c,
           ),
         })),
@@ -309,7 +312,7 @@ export const useStore = create<Store>()(
         set((s) => ({
           conferencias: s.conferencias.map((c) =>
             c.id === id && c.status === 'pendente'
-              ? { ...c, status: 'devolvido' as const, conferidoPorId: s.usuarioAtualId, conferidoEm: new Date().toISOString() }
+              ? { ...c, status: 'devolvido' as const, conferidoPorId: s.usuarioAtualId, conferidoEm: agoraISO() }
               : c,
           ),
         })),
@@ -318,8 +321,9 @@ export const useStore = create<Store>()(
         set((s) => ({
           animais: [...s.animais, a],
           movimentacoes: movi
-            ? [...s.movimentacoes, { id: nid('MV'), ...movi }]
+            ? [...s.movimentacoes, { id: nid('MV'), responsavelId: s.usuarioAtualId, ...movi }]
             : s.movimentacoes,
+          conferencias: comConferencia(s, 'Cadastro de animal', `${a.brinco} — ${CATEGORIA_LABEL[a.categoria]}`),
           fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas + 1 },
         })),
 
@@ -361,15 +365,12 @@ export const useStore = create<Store>()(
 
       addPesagemAnimal: (id, pes) =>
         set((s) => ({
-          animais: s.animais.map((a) =>
-            a.id === id
-              ? {
-                  ...a,
-                  pesagens: [...a.pesagens, pes].sort((x, y) => x.data.localeCompare(y.data)),
-                  pesoAtual: pes.peso,
-                }
-              : a,
-          ),
+          animais: s.animais.map((a) => {
+            if (a.id !== id) return a
+            const pesagens = [...a.pesagens, pes].sort((x, y) => x.data.localeCompare(y.data))
+            // pesagem com data antiga entra no histórico sem sobrescrever o peso atual
+            return { ...a, pesagens, pesoAtual: pesagens[pesagens.length - 1].peso }
+          }),
           conferencias: comConferencia(
             s,
             'Pesagem',
@@ -476,7 +477,7 @@ export const useStore = create<Store>()(
       venderAnimais: ({ categoria, qtd, valorTotal, comprador, vencimento }) => {
         const s = get()
         const candidatos = s.animais.filter((a) => a.status === 'ativo' && a.categoria === categoria)
-        if (qtd <= 0) return { ok: false, erro: 'Informe a quantidade.' }
+        if (!Number.isInteger(qtd) || qtd <= 0) return { ok: false, erro: 'Informe a quantidade em cabeças (número inteiro).' }
         if (candidatos.length < qtd) {
           return {
             ok: false,
@@ -528,7 +529,10 @@ export const useStore = create<Store>()(
         return { ok: true }
       },
 
-      comprarAnimais: ({ categoria, qtd, pesoMedio, valorTotal, vendedor, loteId, vencimento }) =>
+      comprarAnimais: ({ categoria, qtd, pesoMedio, valorTotal, vendedor, loteId, vencimento }) => {
+        if (!Number.isInteger(qtd) || qtd <= 0) return { ok: false, erro: 'Informe a quantidade em cabeças (número inteiro).' }
+        if (!(pesoMedio > 0)) return { ok: false, erro: 'Informe o peso médio.' }
+        if (!get().lotes.some((l) => l.id === loteId)) return { ok: false, erro: 'Escolha um lote de destino.' }
         set((s) => {
           const hoje = hojeISO()
           // idade típica estimada por categoria (meses) para preencher o nascimento
@@ -597,12 +601,27 @@ export const useStore = create<Store>()(
                 : s.lancamentos,
             fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas + qtd },
           }
-        }),
+        })
+        return { ok: true }
+      },
 
       // Parto cria o bezerro no Rebanho: inventário e livro permanecem coerentes
-      addParto: (p) =>
+      addParto: (p) => {
+        const s0 = get()
+        const brinco = p.bezerroBrinco.trim()
+        if (!brinco) return { ok: false, erro: 'Informe o brinco do bezerro.' }
+        if (s0.animais.some((a) => a.status === 'ativo' && a.brinco.toLowerCase() === brinco.toLowerCase())) {
+          return { ok: false, erro: `Já existe um animal ativo com o brinco ${brinco}.` }
+        }
+        const mae = s0.animais.find((a) => a.status === 'ativo' && a.brinco.toLowerCase() === p.matrizBrinco.trim().toLowerCase())
+        if (!mae) return { ok: false, erro: `Matriz ${p.matrizBrinco} não encontrada no rebanho ativo.` }
+        if (mae.sexo !== 'F') return { ok: false, erro: `${mae.brinco} não é fêmea.` }
+        if (!p.data || p.data > hojeISO()) return { ok: false, erro: 'A data do parto não pode ser no futuro.' }
+        if (!(p.pesoNascer > 0 && p.pesoNascer < 80)) return { ok: false, erro: 'Peso ao nascer fora do normal (1 a 80 kg).' }
+        const dados = { ...p, bezerroBrinco: brinco, matrizBrinco: mae.brinco }
         set((s) => {
-          const matriz = s.animais.find((a) => a.brinco === p.matrizBrinco && a.status === 'ativo')
+          const matriz = mae
+          const p = dados
           const bezerro: Animal = {
             id: nid('A'),
             brinco: p.bezerroBrinco,
@@ -618,7 +637,7 @@ export const useStore = create<Store>()(
             status: 'ativo',
           }
           return {
-            partos: [...s.partos, { id: nid('PT'), ...p }],
+            partos: [...s.partos, { id: nid('PT'), ...p, animalId: bezerro.id }],
             animais: [...s.animais, bezerro],
             movimentacoes: [
               ...s.movimentacoes,
@@ -637,7 +656,9 @@ export const useStore = create<Store>()(
             conferencias: comConferencia(s, 'Parto', `Matriz ${p.matrizBrinco} pariu ${p.bezerroBrinco} (${p.pesoNascer} kg)`),
             fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas + 1 },
           }
-        }),
+        })
+        return { ok: true }
+      },
 
       removeParto: (id) => {
         const s = get()
@@ -646,12 +667,17 @@ export const useStore = create<Store>()(
         if (s.desmames.some((d) => d.bezerroBrinco === parto.bezerroBrinco)) {
           return { ok: false, erro: 'Este bezerro já tem desmame registrado — exclua o histórico vinculado antes.' }
         }
-        const animal = s.animais.find((a) => a.brinco === parto.bezerroBrinco && a.status === 'ativo')
+        // pelo id do bezerro gravado no parto; partos do seed não têm → cai no brinco
+        const animal = parto.animalId
+          ? s.animais.find((a) => a.id === parto.animalId && a.status === 'ativo')
+          : s.animais.find(
+              (a) => a.brinco === parto.bezerroBrinco && a.status === 'ativo' && a.nascimento === parto.data,
+            )
         set({
           partos: s.partos.filter((p) => p.id !== id),
           animais: animal ? s.animais.filter((a) => a.id !== animal.id) : s.animais,
           movimentacoes: s.movimentacoes.filter(
-            (m) => !(m.tipo === 'nascimento' && m.brinco === parto.bezerroBrinco),
+            (m) => !(m.tipo === 'nascimento' && m.brinco === parto.bezerroBrinco && m.data === parto.data),
           ),
           fazenda: animal
             ? { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - 1 }
@@ -668,6 +694,11 @@ export const useStore = create<Store>()(
         if (s.desmames.some((x) => x.bezerroBrinco === d.bezerroBrinco)) {
           return { ok: false, erro: `${d.bezerroBrinco} já tem desmame registrado.` }
         }
+        if (!d.data || d.data > hojeISO()) return { ok: false, erro: 'A data do desmame não pode ser no futuro.' }
+        if (d.data < animal.nascimento) return { ok: false, erro: 'A data do desmame é anterior ao nascimento.' }
+        if (!(d.peso > 0 && d.peso < 600)) return { ok: false, erro: 'Informe um peso de desmame válido.' }
+        if (!s.lotes.some((l) => l.id === d.loteDestinoId)) return { ok: false, erro: 'Escolha o lote de destino.' }
+        const pesagens = [...animal.pesagens, { data: d.data, peso: d.peso }].sort((x, y) => x.data.localeCompare(y.data))
         const loteNome = s.lotes.find((l) => l.id === d.loteDestinoId)?.nome ?? d.loteDestinoId
         set({
           desmames: [...s.desmames, { id: nid('DS'), ...d }],
@@ -676,10 +707,9 @@ export const useStore = create<Store>()(
               ? {
                   ...a,
                   loteId: d.loteDestinoId,
-                  pesoAtual: d.peso,
-                  pesagens: [...a.pesagens, { data: d.data, peso: d.peso }].sort((x, y) =>
-                    x.data.localeCompare(y.data),
-                  ),
+                  // desmame lançado com data retroativa não sobrescreve pesagem mais recente
+                  pesoAtual: pesagens[pesagens.length - 1].peso,
+                  pesagens,
                 }
               : a,
           ),
@@ -714,7 +744,7 @@ export const useStore = create<Store>()(
         )
         if (sexo) candidatos = candidatos.filter((a) => a.sexo === sexo)
         candidatos.sort((a, b) => a.nascimento.localeCompare(b.nascimento)) // mais velhos primeiro
-        if (!qtd || qtd <= 0) return { ok: false, erro: 'Informe a quantidade a apartar.' }
+        if (!Number.isInteger(qtd) || qtd <= 0) return { ok: false, erro: 'Informe a quantidade a apartar (número inteiro).' }
         if (candidatos.length < qtd) {
           return { ok: false, erro: `Só há ${candidatos.length} bezerro(s) ao pé nesse recorte.` }
         }
@@ -732,7 +762,7 @@ export const useStore = create<Store>()(
           data: hoje,
           bezerroBrinco: a.brinco,
           peso: a.pesoAtual,
-          idadeDias: diffDays(a.nascimento, hoje),
+          idadeDias: Math.max(1, diffDays(a.nascimento, hoje)),
           loteDestinoId: destino === 'recria' ? loteId! : 'VENDA',
         }))
         const brincoFaixa = qtd === 1 ? alvo[0].brinco : `${alvo[0].brinco} … ${alvo[qtd - 1].brinco}`
@@ -846,7 +876,16 @@ export const useStore = create<Store>()(
 
       addDiagnostico: (d) =>
         set((s) => ({
-          diagnosticos: [...s.diagnosticos, { id: nid('DG'), ...d }],
+          // DG pendente da mesma matriz na mesma estação é substituído pelo resultado (não duplica)
+          diagnosticos: s.diagnosticos.some(
+            (x) => x.matrizBrinco === d.matrizBrinco && x.estacaoId === d.estacaoId && x.resultado === 'pendente',
+          )
+            ? s.diagnosticos.map((x) =>
+                x.matrizBrinco === d.matrizBrinco && x.estacaoId === d.estacaoId && x.resultado === 'pendente'
+                  ? { ...x, ...d, id: x.id }
+                  : x,
+              )
+            : [...s.diagnosticos, { id: nid('DG'), ...d }],
           conferencias: comConferencia(
             s,
             'Diagnóstico de gestação',
@@ -881,6 +920,7 @@ export const useStore = create<Store>()(
         const s = get()
         const item = s.estoque.find((i) => i.id === m.itemId)
         if (!item) return { ok: false, erro: 'Insumo não encontrado.' }
+        if (!(m.quantidade > 0)) return { ok: false, erro: 'Informe uma quantidade maior que zero.' }
         if (m.quantidade > item.saldo) {
           return {
             ok: false,
@@ -943,12 +983,13 @@ export const useStore = create<Store>()(
             ),
             movEstoque: [...s.movEstoque, ...novasEntradas],
             estoque: s.estoque.map((it) => {
-              const entrada = ped.itens.find((pi) => pi.itemEstoqueId === it.id)
-              if (!entrada) return it
-              const novoSaldo = it.saldo + entrada.quantidade
-              const novoCusto =
-                (it.saldo * it.custoMedio + entrada.quantidade * entrada.valorUnitario) /
-                (it.saldo + entrada.quantidade)
+              // o mesmo insumo pode vir em mais de uma linha do pedido: soma tudo
+              const linhas = ped.itens.filter((pi) => pi.itemEstoqueId === it.id)
+              if (linhas.length === 0) return it
+              const qtd = linhas.reduce((t, l) => t + l.quantidade, 0)
+              const valor = linhas.reduce((t, l) => t + l.quantidade * l.valorUnitario, 0)
+              const novoSaldo = it.saldo + qtd
+              const novoCusto = novoSaldo > 0 ? (Math.max(0, it.saldo) * it.custoMedio + valor) / (Math.max(0, it.saldo) + qtd) : it.custoMedio
               return { ...it, saldo: novoSaldo, custoMedio: Math.round(novoCusto * 100) / 100 }
             }),
             precosHistoricos: [
