@@ -1,6 +1,18 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRightLeft, Warehouse, Trees } from 'lucide-react'
+import { ArrowRightLeft, Warehouse, Trees, CalendarClock } from 'lucide-react'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
+import { rodizioPastos } from '@/lib/gestao'
+import { RODIZIO } from '@/data/seed'
+import { fmtDate } from '@/lib/format'
+import type { CondicaoPasto } from '@/data/types'
+
+const CONDICAO: Record<CondicaoPasto, { rotulo: string; cor: string }> = {
+  boa: { rotulo: 'Boa', cor: 'bg-green-600' },
+  regular: { rotulo: 'Regular', cor: 'bg-amber-500' },
+  ruim: { rotulo: 'Ruim', cor: 'bg-red-500' },
+}
 import { useStore } from '@/store/useStore'
 import { Dialog } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -18,9 +30,11 @@ import type { Lote } from '@/data/types'
  */
 export function MapaPastos() {
   const state = useStore()
+  const updatePasto = useStore((s) => s.updatePasto)
   const [mover, setMover] = useState<Lote | null>(null)
   const ocupacao = uaPorPasto(state)
   const vivos = ativos(state.animais)
+  const rodizio = rodizioPastos(state)
 
   return (
     <div>
@@ -31,6 +45,7 @@ export function MapaPastos() {
           const cabecas = vivos.filter((a) => lotes.some((l) => l.id === a.loteId)).length
           const nivel = pct > 1 ? 'acima' : pct > 0.85 ? 'cheio' : pct < 0.3 ? 'folga' : 'ok'
           const Icone = pasto.tipo === 'confinamento' ? Warehouse : Trees
+          const rod = rodizio.find((r) => r.pasto.id === pasto.id)
           return (
             <div
               key={pasto.id}
@@ -50,6 +65,29 @@ export function MapaPastos() {
                 </div>
                 <span className="tnum whitespace-nowrap text-[11px] text-muted-foreground">{fmtNum(pasto.areaHa)} ha</span>
               </div>
+              {pasto.tipo === 'pasto' && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className={cn('inline-block h-2 w-2 rounded-full', CONDICAO[pasto.condicao ?? 'boa'].cor)} />
+                  <select
+                    value={pasto.condicao ?? 'boa'}
+                    onChange={(e) => { updatePasto(pasto.id, { condicao: e.target.value as CondicaoPasto }); toast(`${pasto.nome}: condição ${CONDICAO[e.target.value as CondicaoPasto].rotulo.toLowerCase()}.`) }}
+                    className="rounded border bg-white/80 px-1 py-0.5 text-[11px] touch:py-1.5"
+                    aria-label={`Condição do pasto ${pasto.nome}`}
+                  >
+                    {(Object.keys(CONDICAO) as CondicaoPasto[]).map((c) => <option key={c} value={c}>Pasto {CONDICAO[c].rotulo.toLowerCase()}</option>)}
+                  </select>
+                  {rod && !rod.emDescanso && rod.trocaPrevista && (
+                    <span className={cn('tnum text-[11px]', rod.vencido ? 'font-semibold text-red-700' : 'text-muted-foreground')}>
+                      {rod.diasNoPasto} d no pasto · troca {rod.vencido ? 'vencida' : `em ${rod.diasParaTroca} d`}
+                    </span>
+                  )}
+                  {rod && rod.emDescanso && (
+                    <span className={cn('tnum text-[11px]', rod.prontoParaReceber ? 'text-green-700' : 'text-muted-foreground')}>
+                      descanso {rod.diasDescanso} d{rod.prontoParaReceber ? ' · pronto para receber' : ''}
+                    </span>
+                  )}
+                </div>
+              )}
 
               <div className="mt-2">
                 <div className="flex justify-between text-[11px]">
@@ -112,6 +150,49 @@ export function MapaPastos() {
         <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border-2 border-amber-300 bg-amber-50" /> 85–100%</span>
         <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm border-2 border-red-300 bg-red-50" /> acima da capacidade</span>
         <span>· tamanho do bloco proporcional à área · ícone ⇄ faz o rodízio</span>
+      </div>
+
+      <div className="mt-3 rounded-lg border bg-card">
+        <div className="flex items-center gap-1.5 border-b px-3 py-2 text-[13px] font-semibold"><CalendarClock className="h-4 w-4 text-muted-foreground" /> Calendário de rodízio — {RODIZIO.diasOcupacao} dias de ocupação, {RODIZIO.diasDescanso} de descanso</div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Pasto</TableHead>
+              <TableHead>Condição</TableHead>
+              <TableHead>Lotes</TableHead>
+              <TableHead className="text-right">Cab</TableHead>
+              <TableHead>Entrada</TableHead>
+              <TableHead className="text-right">Dias</TableHead>
+              <TableHead>Troca prevista</TableHead>
+              <TableHead>Situação</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rodizio.map((r) => (
+              <TableRow key={r.pasto.id}>
+                <TableCell className="font-medium">{r.pasto.nome}</TableCell>
+                <TableCell><span className="inline-flex items-center gap-1.5 text-[12px]"><span className={cn('inline-block h-2 w-2 rounded-full', CONDICAO[r.pasto.condicao ?? 'boa'].cor)} />{CONDICAO[r.pasto.condicao ?? 'boa'].rotulo}</span></TableCell>
+                <TableCell className="text-muted-foreground">{r.lotes.length === 0 ? '—' : r.lotes.map((l) => l.nome).join(', ')}</TableCell>
+                <TableCell className="tnum text-right">{fmtNum(r.cabecas)}</TableCell>
+                <TableCell className="tnum">{r.entrada && !r.emDescanso ? fmtDate(r.entrada) : '—'}</TableCell>
+                <TableCell className="tnum text-right">{r.emDescanso ? `${r.diasDescanso} descanso` : r.diasNoPasto}</TableCell>
+                <TableCell className="tnum">{r.trocaPrevista && !r.emDescanso ? fmtDate(r.trocaPrevista) : '—'}</TableCell>
+                <TableCell>
+                  {r.emDescanso ? (
+                    <Badge variant={r.prontoParaReceber ? 'good' : 'default'}>{r.prontoParaReceber ? 'Pronto para receber' : r.pasto.condicao === 'ruim' ? 'Recuperando' : 'Em descanso'}</Badge>
+                  ) : r.vencido ? (
+                    <Badge variant="critical">Trocar agora</Badge>
+                  ) : (r.diasParaTroca ?? 99) <= 7 ? (
+                    <Badge variant="warning">Troca em {r.diasParaTroca} d</Badge>
+                  ) : (
+                    <Badge variant="good">No prazo</Badge>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">Mover um lote (ícone ⇄) reinicia a contagem no pasto novo e começa o descanso do que ficou vazio.</div>
       </div>
 
       <MoverLoteDialog lote={mover} onClose={() => setMover(null)} />

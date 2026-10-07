@@ -1,5 +1,6 @@
-import { Fragment, useMemo, useState } from 'react'
-import { Plus, MessageSquarePlus, Play, CheckCircle2 } from 'lucide-react'
+import { Fragment, useMemo, useState, type ChangeEvent } from 'react'
+import { Plus, MessageSquarePlus, Play, CheckCircle2, Camera } from 'lucide-react'
+import { reduzirFoto } from '@/lib/imagem'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -9,6 +10,8 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
+import { nomeMembro } from '@/lib/metrics'
+import { addDays } from '@/data/seed'
 import { fmtDate, fmtNum, hojeISO } from '@/lib/format'
 import type { OrdemServico as OS, StatusOS, TipoOS } from '@/data/types'
 
@@ -32,23 +35,30 @@ export default function OrdensServico() {
   const updateOSStatus = useStore((s) => s.updateOSStatus)
   const [novaOpen, setNovaOpen] = useState(false)
   const [notaPara, setNotaPara] = useState<OS | null>(null)
+  const [concluirPara, setConcluirPara] = useState<OS | null>(null)
   const [filtroStatus, setFiltroStatus] = useState('')
   const [expandida, setExpandida] = useState('')
 
   const hoje = hojeISO()
-  const abertas = state.ordensServico.filter((o) => o.status === 'aberta').length
-  const andamento = state.ordensServico.filter((o) => o.status === 'em_andamento').length
-  const atrasadas = state.ordensServico.filter((o) => o.status !== 'concluida' && o.prazo && o.prazo < hoje).length
+  const em7 = addDays(hoje, 7)
+  const pendentes = state.ordensServico.filter((o) => o.status !== 'concluida')
+  const atrasadas = pendentes.filter((o) => o.prazo && o.prazo < hoje).length
+  const paraHoje = pendentes.filter((o) => o.prazo === hoje).length
+  const proximos7 = pendentes.filter((o) => o.prazo && o.prazo > hoje && o.prazo <= em7).length
   const concluidasMes = state.ordensServico.filter(
     (o) => o.status === 'concluida' && o.conclusao?.slice(0, 7) === hoje.slice(0, 7),
   ).length
+  const situacao = (o: OS): 'atrasada' | 'hoje' | '7dias' | 'concluida' | 'aberta' =>
+    o.status === 'concluida' ? 'concluida' : o.prazo && o.prazo < hoje ? 'atrasada' : o.prazo === hoje ? 'hoje' : o.prazo && o.prazo <= em7 ? '7dias' : 'aberta'
+  const ordem = { atrasada: 0, hoje: 1, '7dias': 2, aberta: 3, concluida: 4 }
 
   const filtradas = useMemo(
     () =>
       [...state.ordensServico]
-        .sort((a, b) => b.abertura.localeCompare(a.abertura))
-        .filter((o) => !filtroStatus || o.status === filtroStatus),
-    [state.ordensServico, filtroStatus],
+        .sort((a, b) => ordem[situacao(a)] - ordem[situacao(b)] || (a.prazo ?? '9999').localeCompare(b.prazo ?? '9999') || b.abertura.localeCompare(a.abertura))
+        .filter((o) => !filtroStatus || (filtroStatus === 'atrasada' || filtroStatus === 'hoje' || filtroStatus === '7dias' ? situacao(o) === filtroStatus : o.status === filtroStatus)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state.ordensServico, filtroStatus, hoje],
   )
 
   if (state.ordensServico.length === 0) {
@@ -70,29 +80,26 @@ export default function OrdensServico() {
   return (
     <div>
       <PageHeader
-        title="Ordens de serviço"
-        subtitle="Abertura, acompanhamento com notas e conclusão"
+        title="Tarefas e ordens de serviço"
+        subtitle="Atrasadas, hoje, próximos 7 dias — conclusão com responsável, observação e foto"
         actions={
           <Button onClick={() => setNovaOpen(true)}>
-            <Plus className="h-3.5 w-3.5" /> Nova OS
+            <Plus className="h-3.5 w-3.5" /> Nova tarefa
           </Button>
         }
       />
 
       <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-        <StatCard label="Abertas" value={fmtNum(abertas)} tone={abertas > 0 ? 'warning' : 'good'} />
-        <StatCard label="Em andamento" value={fmtNum(andamento)} />
-        <StatCard label="Com prazo vencido" value={fmtNum(atrasadas)} tone={atrasadas > 0 ? 'critical' : 'good'} />
+        <StatCard label="Atrasadas" value={fmtNum(atrasadas)} detail="prazo vencido" tone={atrasadas > 0 ? 'critical' : 'good'} />
+        <StatCard label="Para hoje" value={fmtNum(paraHoje)} tone={paraHoje > 0 ? 'warning' : undefined} />
+        <StatCard label="Próximos 7 dias" value={fmtNum(proximos7)} detail={`${fmtNum(pendentes.length)} pendentes no total`} />
         <StatCard label="Concluídas no mês" value={fmtNum(concluidasMes)} tone="good" />
       </div>
 
-      <div className="mb-2">
-        <Select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)} className="w-44">
-          <option value="">Todos os status</option>
-          <option value="aberta">Abertas</option>
-          <option value="em_andamento">Em andamento</option>
-          <option value="concluida">Concluídas</option>
-        </Select>
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {([['', 'Todas'], ['atrasada', `Atrasadas (${atrasadas})`], ['hoje', `Hoje (${paraHoje})`], ['7dias', `7 dias (${proximos7})`], ['concluida', `Concluídas`]] as const).map(([v, l]) => (
+          <button key={v} onClick={() => setFiltroStatus(v)} className={`rounded-md border px-2.5 py-1 text-xs font-medium touch:py-2 ${filtroStatus === v ? 'border-primary bg-accent' : 'bg-card hover:bg-secondary'}`}>{l}</button>
+        ))}
       </div>
 
       <div className="rounded-lg border bg-card">
@@ -152,15 +159,7 @@ export default function OrdensServico() {
                           </Button>
                         )}
                         {o.status !== 'concluida' && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            title="Concluir"
-                            onClick={() => {
-                              updateOSStatus(o.id, 'concluida')
-                              toast(`${o.numero} concluída.`)
-                            }}
-                          >
+                          <Button size="sm" variant="secondary" title="Concluir" onClick={() => setConcluirPara(o)}>
                             <CheckCircle2 className="h-3 w-3" /> Concluir
                           </Button>
                         )}
@@ -192,10 +191,11 @@ export default function OrdensServico() {
                           ))}
                           {o.conclusao && (
                             <li className="text-xs text-green-800">
-                              <span className="tnum">{fmtDate(o.conclusao)}</span> — OS concluída
+                              <span className="tnum">{fmtDate(o.conclusao)}</span> — concluída{o.concluidaPorId ? ` por ${nomeMembro(state, o.concluidaPorId)}` : ''}{o.conclusaoObs ? `: ${o.conclusaoObs}` : ''}
                             </li>
                           )}
                         </ul>
+                        {o.conclusaoFoto && <img src={o.conclusaoFoto} alt="Foto da conclusão" className="mt-2 h-24 w-24 rounded border object-cover" />}
                       </TableCell>
                     </TableRow>
                   )}
@@ -211,20 +211,21 @@ export default function OrdensServico() {
 
       <NovaOSDialog open={novaOpen} onClose={() => setNovaOpen(false)} />
       <NotaDialog os={notaPara} onClose={() => setNotaPara(null)} />
+      <ConcluirDialog os={concluirPara} onClose={() => setConcluirPara(null)} />
     </div>
   )
 }
 
 function NovaOSDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const addOS = useStore((s) => s.addOS)
-  const { maquinas, pastos } = useStore()
+  const { maquinas, pastos, lotes, equipe } = useStore()
   const [titulo, setTitulo] = useState('')
   const [tipo, setTipo] = useState<TipoOS>('manutencao')
   const [vinculo, setVinculo] = useState('')
-  const [responsavel, setResponsavel] = useState('')
-  const [prazo, setPrazo] = useState('')
+  const [responsavel, setResponsavel] = useState(equipe.find((m) => m.papel === 'campo')?.nome ?? '')
+  const [prazo, setPrazo] = useState(addDays(hojeISO(), 3))
 
-  const vinculos = [...maquinas.map((m) => m.nome), ...pastos.map((p) => p.nome), 'Sede', 'Rebanho geral']
+  const vinculos = [...maquinas.map((m) => m.nome), ...pastos.map((p) => p.nome), ...lotes.map((l) => `Lote ${l.nome}`), 'Sede', 'Rebanho geral']
 
   const salvar = () => {
     if (!titulo.trim() || !responsavel.trim()) return
@@ -255,7 +256,7 @@ function NovaOSDialog({ open, onClose }: { open: boolean; onClose: () => void })
             ))}
           </Select>
         </FormRow>
-        <FormRow label="Vínculo (máquina / pasto)">
+        <FormRow label="Vínculo (máquina / pasto / lote)">
           <Select value={vinculo} onChange={(e) => setVinculo(e.target.value)}>
             <option value="">— sem vínculo —</option>
             {vinculos.map((v) => (
@@ -264,15 +265,71 @@ function NovaOSDialog({ open, onClose }: { open: boolean; onClose: () => void })
           </Select>
         </FormRow>
         <FormRow label="Responsável">
-          <Input value={responsavel} onChange={(e) => setResponsavel(e.target.value)} placeholder="Zé Carlos" />
+          <Input value={responsavel} onChange={(e) => setResponsavel(e.target.value)} placeholder="Zé Carlos" list="equipe-nomes" />
+          <datalist id="equipe-nomes">{equipe.map((m) => <option key={m.id} value={m.nome} />)}</datalist>
         </FormRow>
-        <FormRow label="Prazo (opcional)">
+        <FormRow label="Prazo">
           <Input type="date" value={prazo} onChange={(e) => setPrazo(e.target.value)} />
         </FormRow>
       </div>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
         <Button onClick={salvar}>Abrir OS</Button>
+      </div>
+    </Dialog>
+  )
+}
+
+function ConcluirDialog({ os, onClose }: { os: OS | null; onClose: () => void }) {
+  const concluirOS = useStore((s) => s.concluirOS)
+  const { equipe, usuarioAtualId } = useStore()
+  const [obs, setObs] = useState('')
+  const [responsavelId, setResponsavelId] = useState(usuarioAtualId)
+  const [foto, setFoto] = useState<string | undefined>()
+  const [carregando, setCarregando] = useState(false)
+  const escolher = async (e: ChangeEvent<HTMLInputElement>) => {
+    const arq = e.target.files?.[0]
+    e.target.value = ''
+    if (!arq) return
+    setCarregando(true)
+    try {
+      setFoto(await reduzirFoto(arq))
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Não foi possível usar essa imagem.', 'error')
+    } finally {
+      setCarregando(false)
+    }
+  }
+  const salvar = () => {
+    if (!os) return
+    concluirOS(os.id, { obs, foto, responsavelId })
+    toast(`${os.numero} concluída${foto ? ' com foto' : ''}.`)
+    setObs(''); setFoto(undefined)
+    onClose()
+  }
+  return (
+    <Dialog open={os !== null} onClose={onClose} title={`Concluir — ${os?.titulo ?? ''}`}>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormRow label="Quem concluiu">
+          <Select value={responsavelId} onChange={(e) => setResponsavelId(e.target.value)}>
+            {equipe.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+          </Select>
+        </FormRow>
+        <FormRow label="Observação">
+          <Input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Serviço feito, sobrou material" />
+        </FormRow>
+      </div>
+      <div className="mt-3 flex items-center gap-3">
+        {foto ? <img src={foto} alt="Foto da conclusão" className="h-20 w-20 rounded-md border object-cover" /> : <div className="flex h-20 w-20 items-center justify-center rounded-md border border-dashed bg-secondary/50 text-muted-foreground"><Camera className="h-5 w-5" /></div>}
+        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium hover:bg-secondary touch:py-2.5">
+          <Camera className="h-3.5 w-3.5" /> {carregando ? 'Processando…' : foto ? 'Trocar foto' : 'Tirar foto (celular)'}
+          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={escolher} />
+        </label>
+      </div>
+      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">A conclusão fica registrada com quem fez, a observação e a foto — e entra no Fechamento do Dia.</p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+        <Button onClick={salvar}>Concluir tarefa</Button>
       </div>
     </Dialog>
   )

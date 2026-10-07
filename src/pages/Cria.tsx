@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { Plus, Trash2, Scissors } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
+import { DesmameDialog, PartoDialog } from '@/components/AnimalDialogs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TablePagination } from '@/components/ui/table'
 import { usePagination } from '@/hooks/table'
@@ -455,8 +456,8 @@ export default function Cria() {
         </TabsContent>
       </Tabs>
 
-      <NovoPartoDialog open={partoOpen} onClose={() => setPartoOpen(false)} />
-      <NovoDesmameDialog open={desmameOpen} onClose={() => setDesmameOpen(false)} />
+      <PartoDialog open={partoOpen} onClose={() => setPartoOpen(false)} />
+      <DesmameDialog open={desmameOpen} onClose={() => setDesmameOpen(false)} />
       <ApartarDialog open={apartarOpen} onClose={() => setApartarOpen(false)} />
 
       <ConfirmDialog
@@ -596,134 +597,6 @@ function ApartarDialog({ open, onClose }: { open: boolean; onClose: () => void }
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
         <Button onClick={salvar}>Apartar</Button>
-      </div>
-    </Dialog>
-  )
-}
-
-function NovoPartoDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const addParto = useStore((s) => s.addParto)
-  const estacoes = useStore((s) => s.estacoes)
-  const [data, setData] = useState(hojeISO())
-  const [matriz, setMatriz] = useState('')
-  const [bezerro, setBezerro] = useState('')
-  const [sexo, setSexo] = useState<'M' | 'F'>('M')
-  const [peso, setPeso] = useState('32')
-  const [dif, setDif] = useState('1')
-  const [erro, setErro] = useState('')
-
-  const salvar = () => {
-    if (!matriz.trim() || !bezerro.trim()) {
-      setErro('Informe o brinco da matriz e o do bezerro.')
-      return
-    }
-    const r = addParto({
-      data,
-      matrizBrinco: matriz,
-      bezerroBrinco: bezerro,
-      sexo,
-      pesoNascer: Number(peso),
-      dificuldade: Number(dif) as 1 | 2 | 3 | 4 | 5,
-      estacaoId: estacoes.find((e) => e.status === 'encerrada')?.id ?? 'EM-PASS',
-    })
-    if (!r.ok) {
-      setErro(r.erro ?? 'Não foi possível registrar o parto.')
-      return
-    }
-    toast(`Parto registrado — ${bezerro.trim()} criado automaticamente no Rebanho.`)
-    setMatriz(''); setBezerro(''); setErro('')
-    onClose()
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose} title="Registrar parto">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <FormRow label="Data"><Input type="date" value={data} onChange={(e) => setData(e.target.value)} /></FormRow>
-        <FormRow label="Matriz (brinco)"><Input value={matriz} onChange={(e) => setMatriz(e.target.value)} placeholder="V-0123" /></FormRow>
-        <FormRow label="Brinco do bezerro"><Input value={bezerro} onChange={(e) => setBezerro(e.target.value)} placeholder="BZ-401" /></FormRow>
-        <FormRow label="Sexo">
-          <Select value={sexo} onChange={(e) => setSexo(e.target.value as 'M' | 'F')}>
-            <option value="M">Macho</option>
-            <option value="F">Fêmea</option>
-          </Select>
-        </FormRow>
-        <FormRow label="Peso ao nascer (kg)"><Input type="number" value={peso} onChange={(e) => setPeso(e.target.value)} /></FormRow>
-        <FormRow label="Escore de dificuldade (1–5)">
-          <Select value={dif} onChange={(e) => setDif(e.target.value)}>
-            {[1, 2, 3, 4, 5].map((n) => (
-              <option key={n} value={n}>{n} — {n === 1 ? 'sem auxílio' : n === 5 ? 'cesariana' : 'auxílio'}</option>
-            ))}
-          </Select>
-        </FormRow>
-      </div>
-      {erro && (
-        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">
-          {erro}
-        </p>
-      )}
-      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
-        O bezerro é criado automaticamente no Rebanho (lote da matriz) e registrado no livro de movimentação.
-      </p>
-      <div className="mt-4 flex justify-end gap-2">
-        <Button variant="outline" onClick={onClose}>Cancelar</Button>
-        <Button onClick={salvar}>Salvar</Button>
-      </div>
-    </Dialog>
-  )
-}
-
-function NovoDesmameDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { partos, lotesRecria, lotes, addDesmame } = useStore()
-  // fazenda só de cria não tem lote de recria: aí qualquer lote serve de destino
-  const destinos = lotesRecria.length > 0 ? lotesRecria : lotes
-  const [data, setData] = useState(hojeISO())
-  const [brinco, setBrinco] = useState('')
-  const [peso, setPeso] = useState('195')
-  const [loteId, setLoteId] = useState(destinos[0]?.id ?? '')
-  const [erro, setErro] = useState('')
-
-  const salvar = () => {
-    if (!brinco.trim()) {
-      setErro('Informe o brinco do bezerro.')
-      return
-    }
-    const parto = partos.find((p) => p.bezerroBrinco === brinco)
-    const idade = parto ? Math.max(1, Math.round((new Date(data).getTime() - new Date(parto.data).getTime()) / 86400000)) : 210
-    const r = addDesmame({ data, bezerroBrinco: brinco.trim(), peso: Number(peso), idadeDias: idade, loteDestinoId: loteId })
-    if (!r.ok) {
-      setErro(r.erro ?? 'Não foi possível registrar o desmame.')
-      return
-    }
-    toast(`Desmame registrado — ${brinco.trim()} transferido para ${destinos.find((l) => l.id === loteId)?.nome ?? 'o lote de destino'}.`)
-    setBrinco(''); setErro('')
-    onClose()
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose} title="Registrar desmame">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <FormRow label="Data"><Input type="date" value={data} onChange={(e) => setData(e.target.value)} /></FormRow>
-        <FormRow label="Brinco do bezerro"><Input value={brinco} onChange={(e) => setBrinco(e.target.value)} placeholder="BZ-023" /></FormRow>
-        <FormRow label="Peso ao desmame (kg)"><Input type="number" value={peso} onChange={(e) => setPeso(e.target.value)} /></FormRow>
-        <FormRow label="Lote de destino">
-          <Select value={loteId} onChange={(e) => setLoteId(e.target.value)}>
-            {destinos.map((l) => (
-              <option key={l.id} value={l.id}>{l.nome}</option>
-            ))}
-          </Select>
-        </FormRow>
-      </div>
-      {erro && (
-        <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-800">
-          {erro}
-        </p>
-      )}
-      <p className="mt-3 rounded-md border border-blue-100 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-900">
-        O animal é movido para o lote de destino e a pesagem do desmame entra na ficha individual.
-      </p>
-      <div className="mt-4 flex justify-end gap-2">
-        <Button variant="outline" onClick={onClose}>Cancelar</Button>
-        <Button onClick={salvar}>Salvar</Button>
       </div>
     </Dialog>
   )

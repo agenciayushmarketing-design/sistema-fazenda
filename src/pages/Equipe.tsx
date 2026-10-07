@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Plus, CheckCircle2, Undo2, Trash2, ShieldCheck } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Plus, CheckCircle2, Undo2, Trash2, ShieldCheck, AlertTriangle, OctagonAlert } from 'lucide-react'
+import { incoerencias } from '@/lib/gestao'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TablePagination } from '@/components/ui/table'
@@ -38,7 +40,9 @@ export default function Equipe() {
   const [membroExcluir, setMembroExcluir] = useState<MembroEquipe | null>(null)
   const [filtroStatus, setFiltroStatus] = useState('')
   const [searchParams] = useSearchParams()
-  const tabInicial = searchParams.get('tab') === 'equipe' ? 'equipe' : 'aprovacoes'
+  const tabParam = searchParams.get('tab')
+  const tabInicial = tabParam === 'equipe' || tabParam === 'incoerencias' ? tabParam : 'aprovacoes'
+  const lista = incoerencias(state)
 
   const usuario = state.equipe.find((m) => m.id === state.usuarioAtualId)
   const podeAprovar = usuario?.papel !== 'campo'
@@ -73,6 +77,8 @@ export default function Equipe() {
           tone={pendentes.length > 0 ? 'warning' : 'good'}
           hint="O campo lança e o dado já vale na fazenda; o escritório confere e dá o visto — nada se perde, nada passa sem controle."
         />
+        <StatCard label="Incoerências apontadas" value={fmtNum(lista.length)} detail={`${lista.filter((i) => i.severidade === 'critical').length} graves`} tone={lista.some((i) => i.severidade === 'critical') ? 'critical' : lista.length > 0 ? 'warning' : 'good'}
+          hint="O sistema cruza os lançamentos e aponta o que não bate: peso que caiu, vacina repetida, lançamento em animal vendido, pasto acima da lotação, morte com ocorrência aberta." />
         <StatCard label="Conferidas hoje" value={fmtNum(aprovadasHoje)} tone="good" />
         <StatCard label="Membros da equipe" value={fmtNum(state.equipe.length)} detail={`${state.equipe.filter((m) => m.papel === 'campo').length} no campo`} />
         <StatCard
@@ -86,8 +92,40 @@ export default function Equipe() {
       <Tabs defaultValue={tabInicial}>
         <TabsList>
           <TabsTrigger value="aprovacoes">Conferências ({fmtNum(state.conferencias.length)})</TabsTrigger>
+          <TabsTrigger value="incoerencias">Incoerências ({fmtNum(lista.length)})</TabsTrigger>
           <TabsTrigger value="equipe">Equipe ({fmtNum(state.equipe.length)})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="incoerencias">
+          <div className="rounded-lg border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10" />
+                  <TableHead>O que não bate</TableHead>
+                  <TableHead>Detalhe</TableHead>
+                  <TableHead>Regra</TableHead>
+                  <TableHead className="text-right">Ver</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {lista.length === 0 && <TableRow><TableCell colSpan={5} className="text-muted-foreground">Nenhuma incoerência — os lançamentos estão batendo entre si.</TableCell></TableRow>}
+                {lista.map((i, k) => (
+                  <TableRow key={k} className={i.severidade === 'critical' ? 'bg-red-50/40' : ''}>
+                    <TableCell>{i.severidade === 'critical' ? <OctagonAlert className="h-4 w-4 text-red-600" /> : <AlertTriangle className="h-4 w-4 text-amber-600" />}</TableCell>
+                    <TableCell className="font-medium">{i.titulo}</TableCell>
+                    <TableCell className="text-muted-foreground">{i.detalhe}</TableCell>
+                    <TableCell><Badge>{REGRA[i.tipo]}</Badge></TableCell>
+                    <TableCell className="text-right"><Link to={i.link} className="text-[12px] font-medium text-primary hover:underline">abrir</Link></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+              Regras: peso que caiu mais de 5% · ganho acima de 2,5 kg/dia · lançamento em animal vendido ou morto · mesma vacina 2× em 30 dias · pasto acima da lotação · morte com ocorrência de ronda em aberto.
+            </div>
+          </div>
+        </TabsContent>
 
         <TabsContent value="aprovacoes">
           <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -254,6 +292,15 @@ export default function Equipe() {
     </div>
   )
 }
+
+const REGRA = {
+  peso_caiu: 'Peso caiu >5%',
+  ganho_anormal: 'Ganho fora do normal',
+  animal_inativo: 'Animal vendido/morto',
+  vacina_repetida: 'Vacina repetida',
+  lotacao: 'Lotação do pasto',
+  morte_aberta: 'Morte c/ ocorrência',
+} as const
 
 function NovoMembroDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const addMembroEquipe = useStore((s) => s.addMembroEquipe)

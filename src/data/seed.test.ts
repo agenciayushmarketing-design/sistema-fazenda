@@ -215,7 +215,11 @@ describe.each(PERFIS_LISTA)('coerência do seed — perfil %s', (perfil) => {
       expect(m.qtdAnimais).toBeGreaterThan(0)
     }
     expect(seed.rondas.length).toBeGreaterThan(0)
-    const brincos = new Set(seed.animais.filter((a) => a.status === 'ativo').map((a) => a.brinco))
+    // ronda pode citar animal que morreu depois (a conferência aponta a ocorrência em aberto)
+    const brincos = new Set([
+      ...seed.animais.map((a) => a.brinco),
+      ...seed.movimentacoes.filter((m) => m.tipo === 'morte' && m.quantidade === 1).map((m) => m.brinco),
+    ])
     for (const r of seed.rondas) {
       expect(seed.pastos.some((p) => p.id === r.pastoId), `ronda ${r.id} com pasto inexistente`).toBe(true)
       for (const o of r.ocorrencias) {

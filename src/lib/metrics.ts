@@ -6,6 +6,7 @@ import {
 } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
 import { alertasConfinamento } from '@/lib/confinamento'
+import { incoerencias, statusTarefa } from '@/lib/gestao'
 
 export { UA_KG, KG_POR_ARROBA, APARTACAO_DIAS }
 
@@ -186,7 +187,7 @@ export function prenhezPorTerco(data: Pick<SeedData, 'diagnosticos' | 'estacoes'
 export function partosPrevistos(data: Pick<SeedData, 'diagnosticos'>) {
   const hoje = hojeISO()
   return data.diagnosticos
-    .filter((d) => d.resultado === 'prenha' && d.dppEstimado && d.dppEstimado >= hoje)
+    .filter((d) => d.resultado === 'prenha' && !d.partoId && d.dppEstimado && d.dppEstimado >= hoje)
     .map((d) => ({
       matrizBrinco: d.matrizBrinco,
       origem: d.origemPrenhez,
@@ -614,7 +615,7 @@ export function metricasLeite(data: Pick<SeedData, 'producaoLeite' | 'leite'>) {
 export interface Alerta {
   tipo:
     | 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario'
-    | 'descarte' | 'conferencia' | 'sal' | 'gmd' | 'cocho' | 'abate' | 'enfermaria'
+    | 'descarte' | 'conferencia' | 'sal' | 'gmd' | 'cocho' | 'abate' | 'enfermaria' | 'incoerencia' | 'tarefa'
   severidade: 'warning' | 'critical'
   titulo: string
   detalhe: string
@@ -767,6 +768,26 @@ export function alertas(data: SeedData): Alerta[] {
     })
   }
   out.push(...alertasConfinamento(data))
+  const inc = incoerencias(data)
+  if (inc.length > 0) {
+    out.push({
+      tipo: 'incoerencia',
+      severidade: inc.some((i) => i.severidade === 'critical') ? 'critical' : 'warning',
+      titulo: `${inc.length} incoerência(s) apontadas pela conferência`,
+      detalhe: inc.slice(0, 2).map((i) => i.titulo).join(' · '),
+      link: '/equipe?tab=incoerencias',
+    })
+  }
+  const atrasadas = data.tarefasSanitarias.filter((t) => statusTarefa(t, hoje) === 'atrasada')
+  if (atrasadas.length > 0) {
+    out.push({
+      tipo: 'tarefa',
+      severidade: 'warning',
+      titulo: `${atrasadas.length} tarefa(s) do calendário sanitário atrasada(s)`,
+      detalhe: atrasadas.slice(0, 2).map((t) => t.titulo).join(' · '),
+      link: '/sanitario?tab=calendario',
+    })
+  }
   return out.sort((a, b) => (a.severidade === 'critical' ? -1 : 1) - (b.severidade === 'critical' ? -1 : 1))
 }
 

@@ -25,12 +25,20 @@ export const CATEGORIA_LABEL: Record<Categoria, string> = {
 
 export type Raca = 'Nelore PO' | 'Nelore' | 'Girolando'
 
+export type CondicaoPasto = 'boa' | 'regular' | 'ruim'
+
 export interface Pasto {
   id: string
   nome: string
   areaHa: number
   capacidadeUA: number
   tipo: 'pasto' | 'confinamento'
+  /** condição da forragem (vista na ronda) */
+  condicao?: CondicaoPasto
+  /** dias de ocupação planejados antes do rodízio */
+  diasOcupacaoPlano?: number
+  /** último dia em que o pasto ficou vazio (início do descanso) */
+  descansoDesde?: string
 }
 
 export interface Lote {
@@ -38,6 +46,8 @@ export interface Lote {
   nome: string
   pastoId: string
   finalidade: 'cria' | 'recria' | 'terminacao' | 'reproducao' | 'leite'
+  /** data em que o lote entrou no pasto atual (calendário de rodízio) */
+  entradaPasto?: string
 }
 
 export interface Pesagem {
@@ -49,6 +59,9 @@ export interface EventoSanitario {
   data: string
   tipo: string // vacinação, vermifugação, tratamento
   produto: string
+  /** fim da carência (tratamentos): até essa data o animal não pode ir para abate */
+  carenciaAte?: string
+  obs?: string
 }
 
 export interface Animal {
@@ -114,6 +127,8 @@ export interface Parto {
   estacaoId: string
   /** animal criado por este parto (lançamentos feitos no app) */
   animalId?: string
+  /** pai (touro de repasse ou sêmen do protocolo) */
+  paiNome?: string
 }
 
 export interface Desmame {
@@ -165,6 +180,8 @@ export interface DiagnosticoGestacao {
   dataConcepcao?: string
   dppEstimado?: string
   estacaoId: string
+  /** parto já registrado para esta prenhez (sai da lista de partos previstos) */
+  partoId?: string
 }
 
 export interface TouroRepasse {
@@ -303,6 +320,10 @@ export interface OrdemServico {
   status: StatusOS
   conclusao?: string
   notas: NotaOS[]
+  /** fechamento: quem concluiu, o que foi feito e a foto tirada no celular */
+  concluidaPorId?: string
+  conclusaoObs?: string
+  conclusaoFoto?: string
 }
 
 // ---- Sanitário ----
@@ -319,6 +340,19 @@ export interface ManejoSanitario {
   qtdAnimais: number
   responsavel: string
   obs?: string
+}
+
+/** Calendário sanitário: o que precisa ser feito, quando, em quem */
+export interface TarefaSanitaria {
+  id: string
+  titulo: string
+  data: string
+  tipo: TipoManejo
+  alvo: string
+  loteId?: string
+  itemEstoqueId?: string
+  concluidaEm?: string
+  manejoId?: string
 }
 
 export type TipoOcorrencia = 'observacao' | 'tratamento' | 'doente' | 'morte'
@@ -523,6 +557,9 @@ export interface ConfigFazenda {
   precoArroba?: number
   /** custo fixo do confinamento por cabeça/dia (mão de obra, energia, depreciação) */
   custoFixoCabDia?: number
+  /** custo diário por cabeça em cada fase (custo acumulado do animal) */
+  custoDiaCria?: number
+  custoDiaRecria?: number
 }
 
 // ---- Dataset completo ----
@@ -560,6 +597,7 @@ export interface SeedData {
   producaoLeite: ProducaoLeite[]
   leite?: ConfigLeite
   manejosSanitarios: ManejoSanitario[]
+  tarefasSanitarias: TarefaSanitaria[]
   rondas: RondaSanitaria[]
   fornecimentosSal: FornecimentoSal[]
   leiturasCocho: LeituraCocho[]

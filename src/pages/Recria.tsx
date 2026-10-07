@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
 import { gmdMedioRecria, gmdUltimos3, qtdLoteRecria, statusSalga } from '@/lib/metrics'
+import { projecaoPeso } from '@/lib/gestao'
 import { addDays, diffDays } from '@/data/seed'
 import { fmtDate, fmtGMD, fmtKg1, fmtNum, hojeISO } from '@/lib/format'
 import { SERIES, GRID, MUTED_INK, axisProps, tooltipStyle } from '@/lib/chart'
@@ -164,8 +165,25 @@ export default function Recria() {
       </div>
 
       {lote && (
-        <div className="mt-3">
-          <ChartCard title={`Curva de peso — ${lote.nome} (real × meta)`}>
+        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
+          <div className="rounded-lg border bg-card xl:order-2">
+            <div className="border-b px-3 py-2 text-[13px] font-semibold">Projeção de peso — {lote.nome}</div>
+            <Table>
+              <TableHeader><TableRow><TableHead>Em</TableHead><TableHead>Data</TableHead><TableHead className="text-right">Peso médio</TableHead><TableHead className="text-right">@ / cab</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {projecaoPeso(curva[curva.length - 1]?.real ?? lote.pesoEntrada, gmdUltimos3(lote)).map((p) => (
+                  <TableRow key={p.dias} className={p.peso >= lote.pesoAlvo && (curva[curva.length - 1]?.real ?? 0) < lote.pesoAlvo ? 'bg-green-50/60' : ''}>
+                    <TableCell>{p.dias} dias</TableCell>
+                    <TableCell className="tnum">{fmtDate(p.data)}</TableCell>
+                    <TableCell className="tnum text-right font-semibold">{fmtKg1(p.peso)}{p.peso >= lote.pesoAlvo ? <span className="ml-1 text-[10px] text-green-700">alvo</span> : ''}</TableCell>
+                    <TableCell className="tnum text-right">{(p.arrobas).toFixed(1).replace('.', ',')}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">Ritmo dos últimos 3 pesos: {fmtGMD(gmdUltimos3(lote))} · alvo {lote.pesoAlvo} kg.</div>
+          </div>
+          <ChartCard className="xl:col-span-2 xl:order-1" title={`Curva de peso — ${lote.nome} (real × meta)`}>
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={curva} margin={{ top: 6, right: 12, left: -8, bottom: 0 }}>
                 <CartesianGrid stroke={GRID} vertical={false} />

@@ -47,6 +47,7 @@ import type {
   ProtocoloIATF,
   RondaSanitaria,
   SeedData,
+  TarefaSanitaria,
   TouroRepasse,
 } from './types'
 
@@ -97,6 +98,20 @@ export const CONFINAMENTO = {
   /** custo fixo padrão por cabeça/dia (mão de obra, energia, depreciação) */
   custoFixoCabDia: 1.5,
 }
+
+/** Custo diário por cabeça em cada fase — base do custo acumulado do animal (R$/cab/dia) */
+export const CUSTO_DIA_FASE = { cria: 1.9, recria: 3.2, terminacao: 12 }
+
+/** Rodízio: dias de ocupação antes de trocar de pasto e descanso mínimo */
+export const RODIZIO = { diasOcupacao: 35, diasDescanso: 30 }
+
+/** Vacinas acompanhadas na cobertura vacinal: nome que aparece no histórico e validade em meses */
+export const VACINAS_COBERTURA: { chave: string; nome: string; meses: number; soFemeasJovens?: boolean }[] = [
+  { chave: 'aftosa', nome: 'Aftosa', meses: 6 },
+  { chave: 'clostridiose', nome: 'Clostridiose', meses: 12 },
+  { chave: 'raiva', nome: 'Raiva', meses: 12 },
+  { chave: 'brucelose', nome: 'Brucelose B19 (bezerras 3–8 m)', meses: 120, soFemeasJovens: true },
+]
 
 /** Escala de leitura de cocho: nota da sobra → ajuste do trato de hoje */
 export const NOTAS_COCHO = [
@@ -1379,10 +1394,15 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
   const escritorioId = equipe.find((m) => m.papel === 'escritorio')?.id ?? equipe[0].id
   const gerenteId = equipe.find((m) => m.papel === 'gerente')?.id ?? equipe[0].id
 
-  const pastos: Pasto[] = P.pastos.map((p) => ({ ...p }))
+  const condicoes: Pasto['condicao'][] = ['boa', 'boa', 'regular', 'boa', 'ruim']
+  const pastos: Pasto[] = P.pastos.map((p, i) => ({
+    ...p,
+    condicao: p.tipo === 'pasto' ? condicoes[i % condicoes.length] : undefined,
+    diasOcupacaoPlano: p.tipo === 'pasto' ? RODIZIO.diasOcupacao : undefined,
+  }))
   const lotes: Lote[] = [
-    ...P.lotes.map((l) => ({ ...l })),
-    ...P.recria.map((r) => ({ id: r.id, nome: r.nome, pastoId: r.pastoId, finalidade: 'recria' as const })),
+    ...P.lotes.map((l, i) => ({ ...l, entradaPasto: addDays(today, -(12 + ((i * 11) % 34))) })),
+    ...P.recria.map((r) => ({ id: r.id, nome: r.nome, pastoId: r.pastoId, finalidade: 'recria' as const, entradaPasto: addDays(today, Math.max(r.entradaDias, -(20 + ((r.qtd * 7) % 30)))) })),
   ]
 
   const animais: Animal[] = []
@@ -2387,6 +2407,54 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     ocorrencias: r.ocorrencias.map((o) => ({ ...o })),
   }))
 
+  // ---- Calendário sanitário: atrasadas, próximas e uma já feita (ligada ao manejo) ----
+  const itemIds = new Set(P.itensEstoque.map((i) => i.id))
+  const item = (id: string) => (itemIds.has(id) ? id : undefined)
+  const temCria = P.cria.partos > 0
+  const tarefasSanitarias: TarefaSanitaria[] = []
+  const tarefa = (t: Omit<TarefaSanitaria, 'id'>) => tarefasSanitarias.push({ id: `TS-${tarefasSanitarias.length + 1}`, ...t })
+  tarefa({ titulo: 'Aftosa — campanha oficial', data: addDays(today, 24), tipo: 'vacinacao', alvo: 'Rebanho geral', itemEstoqueId: item('VAC-AFT') })
+  tarefa({ titulo: 'Vermifugação — reforço de entrada das águas', data: addDays(today, -6), tipo: 'vermifugacao', alvo: temCria ? (lotes.find((l) => l.id === P.lotesCriaIds[0])?.nome ?? 'Rebanho geral') : 'Rebanho geral', loteId: temCria ? P.lotesCriaIds[0] : undefined, itemEstoqueId: item('MED-IVE') })
+  if (temCria) {
+    tarefa({ titulo: 'Brucelose B19 — bezerras de 3 a 8 meses', data: addDays(today, 12), tipo: 'vacinacao', alvo: 'Bezerras 3–8 meses', itemEstoqueId: item('VAC-BRU') })
+    tarefa({ titulo: 'Clostridiose — reforço (30 dias após a 1ª dose)', data: addDays(today, -2), tipo: 'vacinacao', alvo: 'Bezerros(as) da safra', itemEstoqueId: item('VAC-CLO') })
+  } else {
+    tarefa({ titulo: 'Clostridiose — reforço dos lotes de entrada', data: addDays(today, -2), tipo: 'vacinacao', alvo: 'Lotes 08 e 09', itemEstoqueId: item('VAC-CLO') })
+  }
+  tarefa({ titulo: 'Raiva — rebanho geral', data: addDays(today, 40), tipo: 'vacinacao', alvo: 'Rebanho geral', itemEstoqueId: item('VAC-RAI') })
+  const manejoFeito = manejosSanitarios.find((m) => m.tipo === 'vacinacao')
+  if (manejoFeito) {
+    tarefa({ titulo: `${manejoFeito.produto} — ${manejoFeito.alvo}`, data: manejoFeito.data, tipo: 'vacinacao', alvo: manejoFeito.alvo, itemEstoqueId: manejoFeito.itemEstoqueId, concluidaEm: manejoFeito.data, manejoId: manejoFeito.id })
+  }
+
+  // ---- Incoerências de demonstração (a conferência aponta): peso que caiu, vacina repetida,
+  //      tratamento com carência em andamento e morte com ocorrência de ronda em aberto ----
+  const pesado = animais.find((a) => a.status === 'ativo' && a.pesagens.length >= 2 && (a.categoria === 'garrote' || a.categoria === 'boi_terminacao'))
+  if (pesado) {
+    const ult = pesado.pesagens[pesado.pesagens.length - 1]
+    const queda = { data: addDays(ult.data, 1) <= today ? today : ult.data, peso: round1(ult.peso * 0.93) }
+    pesado.pesagens = [...pesado.pesagens.filter((p) => p.data !== queda.data), queda]
+    pesado.pesoAtual = queda.peso
+  }
+  const repetida = animais.find((a) => a.status === 'ativo' && a.sanitario.some((e) => /aftosa/i.test(e.produto)))
+  if (repetida) {
+    const ev = repetida.sanitario.find((e) => /aftosa/i.test(e.produto))!
+    repetida.sanitario.push({ data: addDays(ev.data, 14), tipo: 'Vacinação', produto: ev.produto, obs: 'Lançado duas vezes?' })
+  }
+  const tratado = animais.find((a) => a.status === 'ativo' && a.categoria !== 'boi_terminacao' && a.id !== pesado?.id && a.id !== repetida?.id)
+  if (tratado) {
+    tratado.sanitario.push({ data: addDays(today, -9), tipo: 'Tratamento', produto: 'Oxitetraciclina LA — pneumonia', carenciaAte: addDays(today, 12) })
+  }
+  const morteLivro = movimentacoes.find((m) => m.tipo === 'morte' && m.quantidade === 1)
+  if (morteLivro && pastos.length > 0) {
+    const animalMorto = animais.find((a) => a.brinco === morteLivro.brinco)
+    const loteMorto = lotes.find((l) => l.id === animalMorto?.loteId) ?? lotes.find((l) => P.lotesCriaIds.includes(l.id))
+    rondas.push({
+      id: `RS-${rondas.length + 1}`, data: addDays(morteLivro.data, -2), responsavel: equipe.find((m) => m.papel === 'campo')?.nome ?? 'Campo',
+      pastoId: loteMorto?.pastoId ?? pastos[0].id, ocorrencias: [{ brinco: morteLivro.brinco, tipo: 'doente', descricao: 'Apático, sem mamar — observar', resolvida: false }],
+    })
+  }
+
   // ---- Leite: produção diária dos últimos 30 dias ----
   const producaoLeite: ProducaoLeite[] = []
   if (P.leite) {
@@ -2538,6 +2606,7 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     producaoLeite,
     leite: P.leite ? { ...P.leite } : undefined,
     manejosSanitarios,
+    tarefasSanitarias,
     rondas,
     fornecimentosSal,
     leiturasCocho,

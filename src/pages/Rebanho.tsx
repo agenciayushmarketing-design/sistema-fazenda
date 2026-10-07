@@ -4,7 +4,7 @@ import { Plus, ShoppingCart, Banknote, FileSpreadsheet } from 'lucide-react'
 import { ImportarPlanilha } from '@/components/ImportarPlanilha'
 import { MapaPastos } from '@/components/MapaPastos'
 import { useStore } from '@/store/useStore'
-import { PageHeader, FormRow } from '@/components/shared'
+import { PageHeader, FormRow, StatCard } from '@/components/shared'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
   SortableHead, TablePagination,
@@ -19,8 +19,8 @@ import { toast } from '@/components/ui/toast'
 import { useTableSort, usePagination } from '@/hooks/table'
 import { CATEGORIA_LABEL, type Animal, type Categoria, type Movimentacao } from '@/data/types'
 import { inventarioPorCategoria, ativos, nomeMembro } from '@/lib/metrics'
-import { fmtBRL, fmtDate, fmtIdade, fmtKg, fmtNum, hojeISO, idadeMeses } from '@/lib/format'
-import { addDays } from '@/data/seed'
+import { fmtArroba, fmtBRL, fmtDate, fmtIdade, fmtKg, fmtNum, fmtNum1, hojeISO, idadeMeses } from '@/lib/format'
+import { addDays, KG_POR_ARROBA, UA_KG } from '@/data/seed'
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   nascimento: 'Nascimento',
@@ -68,6 +68,7 @@ export default function Rebanho() {
   const [filtroBrinco, setFiltroBrinco] = useState('')
   const [filtroRaca, setFiltroRaca] = useState('')
   const [filtroIdade, setFiltroIdade] = useState('')
+  const [filtroStatus, setFiltroStatus] = useState<'ativo' | 'vendido' | 'morto' | 'todos'>('ativo')
   const [novoOpen, setNovoOpen] = useState(false)
   const [vendaOpen, setVendaOpen] = useState(false)
   const [compraOpen, setCompraOpen] = useState(false)
@@ -82,7 +83,8 @@ export default function Rebanho() {
   }, [searchParams])
 
   const animaisFiltrados = useMemo(() => {
-    return ativos(state.animais)
+    return state.animais
+      .filter((a) => (filtroStatus === 'todos' ? true : a.status === filtroStatus))
       .filter((a) => !filtroCat || a.categoria === filtroCat)
       .filter((a) => !filtroLote || a.loteId === filtroLote)
       .filter((a) => !filtroRaca || a.raca === filtroRaca)
@@ -95,7 +97,12 @@ export default function Rebanho() {
         if (filtroIdade === '25-36') return m >= 25 && m <= 36
         return m > 36
       })
-  }, [state.animais, filtroCat, filtroLote, filtroBrinco, filtroRaca, filtroIdade])
+  }, [state.animais, filtroCat, filtroLote, filtroBrinco, filtroRaca, filtroIdade, filtroStatus])
+  const racas = useMemo(() => [...new Set(state.animais.map((a) => a.raca))], [state.animais])
+  // peso vivo e arrobas do recorte filtrado (só ativos contam)
+  const vivosFiltrados = animaisFiltrados.filter((a) => a.status === 'ativo')
+  const pesoVivoTotal = vivosFiltrados.reduce((s, a) => s + a.pesoAtual, 0)
+  const pesoMedio = vivosFiltrados.length > 0 ? pesoVivoTotal / vivosFiltrados.length : 0
 
   const animalSort = useTableSort(animaisFiltrados, ANIMAL_SORT, { key: 'brinco', dir: 1 })
   const animalPag = usePagination(animalSort.sorted, 50)
@@ -146,6 +153,13 @@ export default function Rebanho() {
         ))}
       </div>
 
+      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+        <StatCard label="Animais no recorte" value={fmtNum(vivosFiltrados.length)} detail={filtroCat || filtroLote || filtroRaca || filtroIdade || filtroBrinco ? 'com os filtros aplicados' : 'todo o rebanho ativo'} />
+        <StatCard label="Peso vivo total" value={`${fmtNum1(pesoVivoTotal / 1000)} t`} detail={`${fmtNum(pesoMedio)} kg médio por cabeça`} hint="Soma do peso atual de todos os animais ativos do recorte." />
+        <StatCard label="Arrobas estimadas" value={fmtArroba(pesoVivoTotal / KG_POR_ARROBA)} detail={state.config.precoArroba ? `≈ ${fmtBRL((pesoVivoTotal / KG_POR_ARROBA) * state.config.precoArroba)} a ${fmtBRL(state.config.precoArroba)}/@` : '30 kg de peso vivo por @'} hint="Peso vivo dividido por 30 kg (rendimento de 50%). Com a cotação cadastrada, vira o valor do rebanho em pé." />
+        <StatCard label="Unidades animais" value={fmtNum1(pesoVivoTotal / UA_KG)} detail="1 UA = 450 kg de peso vivo" />
+      </div>
+
       <Tabs defaultValue={tabInicial}>
         <TabsList>
           <TabsTrigger value="animais">Animais ({fmtNum(animaisFiltrados.length)})</TabsTrigger>
@@ -173,10 +187,15 @@ export default function Rebanho() {
                 <option key={l.id} value={l.id}>{l.nome}</option>
               ))}
             </Select>
-            <Select value={filtroRaca} onChange={(e) => setFiltroRaca(e.target.value)} className="w-36">
+            <Select value={filtroRaca} onChange={(e) => setFiltroRaca(e.target.value)} className="w-40">
               <option value="">Todas as raças</option>
-              <option value="Nelore PO">Nelore PO</option>
-              <option value="Nelore">Nelore</option>
+              {racas.map((r) => <option key={r} value={r}>{r}{r === 'Nelore' ? ' (comercial)' : r === 'Nelore PO' ? ' (PO)' : ''}</option>)}
+            </Select>
+            <Select value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value as typeof filtroStatus)} className="w-36">
+              <option value="ativo">Ativos</option>
+              <option value="vendido">Vendidos</option>
+              <option value="morto">Mortos</option>
+              <option value="todos">Todos</option>
             </Select>
             <Select value={filtroIdade} onChange={(e) => setFiltroIdade(e.target.value)} className="w-44">
               {FAIXAS_IDADE.map((f) => (

@@ -24,6 +24,7 @@ import type {
   NotaOS,
   OrdemServico,
   Parto,
+  Pasto,
   Pedido,
   PerfilDemo,
   Pesagem,
@@ -32,11 +33,13 @@ import type {
   RondaSanitaria,
   SeedData,
   StatusOS,
+  TarefaSanitaria,
   TouroRepasse,
 } from '@/data/types'
+import { interpretarMensagem } from '@/lib/gestao'
 
 const STORAGE_KEY = 'fazenda-santa-helena-demo'
-const VERSAO_DEMO = 9
+const VERSAO_DEMO = 10
 
 /** localStorage que nunca derruba o app: se o espaço do navegador encher (fotos!), avisa */
 let avisouEspaco = false
@@ -101,7 +104,24 @@ interface Actions {
   // Rebanho
   addAnimal: (a: Animal, mov?: Omit<Movimentacao, 'id'>) => void
   updateAnimal: (id: string, patch: Partial<Animal>) => void
-  removeAnimal: (id: string, motivo: 'morte' | 'venda') => void
+  removeAnimal: (id: string, motivo: 'morte' | 'venda', obs?: string) => void
+  /** Vacina ou tratamento individual: escreve na ficha, baixa 1 dose do estoque; tratamento tem carência */
+  registrarEventoAnimal: (p: {
+    animalId: string
+    tipo: 'Vacinação' | 'Tratamento' | 'Vermifugação'
+    produto: string
+    itemEstoqueId?: string
+    data: string
+    carenciaDias?: number
+    obs?: string
+  }) => { ok: boolean; erro?: string }
+  /** Condição do pasto vista na ronda e plano de ocupação (rodízio) */
+  updatePasto: (id: string, patch: Partial<Pick<Pasto, 'condicao' | 'diasOcupacaoPlano'>>) => void
+  /** Calendário sanitário */
+  addTarefaSanitaria: (t: Omit<TarefaSanitaria, 'id'>) => void
+  concluirTarefaSanitaria: (id: string, manejoId?: string) => void
+  /** Lançamento por mensagem (WhatsApp simulado): entra pendente de conferência */
+  lancarPorMensagem: (texto: string) => { ok: boolean; erro?: string; lancamento?: Lancamento }
   addPesagemAnimal: (id: string, pes: Pesagem) => void
   addMovimentacao: (m: Omit<Movimentacao, 'id'>) => void
   /** Planilha → sistema: cadastra os animais validados de uma vez */
@@ -179,6 +199,8 @@ interface Actions {
   // Ordens de serviço
   addOS: (os: Omit<OrdemServico, 'id' | 'numero' | 'notas'>) => void
   updateOSStatus: (id: string, status: StatusOS) => void
+  /** Conclusão com responsável, observação e foto tirada no celular */
+  concluirOS: (id: string, p: { obs?: string; foto?: string; responsavelId?: string }) => void
   addNotaOS: (id: string, nota: NotaOS) => void
 
   // Leite
@@ -391,7 +413,7 @@ export const useStore = create<Store>()(
           animais: s.animais.map((a) => (a.id === id ? { ...a, ...patch } : a)),
         })),
 
-      removeAnimal: (id, motivo) =>
+      removeAnimal: (id, motivo, obs) =>
         set((s) => {
           const animal = s.animais.find((a) => a.id === id)
           if (!animal) return s
@@ -408,15 +430,15 @@ export const useStore = create<Store>()(
                 brinco: animal.brinco,
                 categoria: animal.categoria,
                 quantidade: 1,
-                origem: animal.loteId,
-                obs: 'Registrado manualmente',
+                origem: s.lotes.find((l) => l.id === animal.loteId)?.nome ?? animal.loteId,
+                obs: obs?.trim() || 'Registrado manualmente',
                 responsavelId: s.usuarioAtualId,
               },
             ],
             conferencias: comConferencia(
               s,
               motivo === 'morte' ? 'Morte' : 'Venda',
-              `${animal.brinco} — saída do rebanho (${motivo})`,
+              `${animal.brinco} — ${motivo === 'morte' ? `morte${obs ? `: ${obs}` : ''}` : 'venda'}`,
             ),
             fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - 1 },
           }
@@ -511,8 +533,11 @@ export const useStore = create<Store>()(
           const categoria = [...contagem.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'vaca'
           const origem = s.pastos.find((p) => p.id === lote.pastoId)?.nome ?? lote.pastoId
           const destino = s.pastos.find((p) => p.id === pastoId)?.nome ?? pastoId
+          const hojeMov = hojeISO()
+          const ficouVazio = !s.lotes.some((l) => l.id !== loteId && l.pastoId === lote.pastoId && s.animais.some((a) => a.status === 'ativo' && a.loteId === l.id))
           return {
-            lotes: s.lotes.map((l) => (l.id === loteId ? { ...l, pastoId } : l)),
+            lotes: s.lotes.map((l) => (l.id === loteId ? { ...l, pastoId, entradaPasto: hojeMov } : l)),
+            pastos: s.pastos.map((p) => (p.id === lote.pastoId && ficouVazio ? { ...p, descansoDesde: hojeMov } : p.id === pastoId ? { ...p, descansoDesde: undefined } : p)),
             lotesRecria: s.lotesRecria.map((l) => (l.id === loteId ? { ...l, pastoId } : l)),
             movimentacoes: [
               ...s.movimentacoes,
@@ -690,13 +715,19 @@ export const useStore = create<Store>()(
             nascimento: p.data,
             loteId: matriz?.loteId ?? s.lotes[0]?.id ?? '',
             maeBrinco: p.matrizBrinco,
+            paiNome: p.paiNome,
             pesoAtual: p.pesoNascer,
             pesagens: [{ data: p.data, peso: p.pesoNascer }],
             sanitario: [],
             status: 'ativo',
           }
+          const partoId = nid('PT')
           return {
-            partos: [...s.partos, { id: nid('PT'), ...p, animalId: bezerro.id }],
+            partos: [...s.partos, { id: partoId, ...p, animalId: bezerro.id }],
+            // a prenhez confirmada dessa matriz vira parto realizado (sai dos partos previstos)
+            diagnosticos: s.diagnosticos.map((d) =>
+              d.matrizBrinco === matriz.brinco && d.resultado === 'prenha' && !d.partoId ? { ...d, partoId } : d,
+            ),
             animais: [...s.animais, bezerro],
             movimentacoes: [
               ...s.movimentacoes,
@@ -1158,6 +1189,24 @@ export const useStore = create<Store>()(
               ? { ...o, status, conclusao: status === 'concluida' ? hojeISO() : undefined }
               : o,
           ),
+        })),
+
+      concluirOS: (id, { obs, foto, responsavelId }) =>
+        set((s) => ({
+          ordensServico: s.ordensServico.map((o) =>
+            o.id === id
+              ? {
+                  ...o,
+                  status: 'concluida' as const,
+                  conclusao: hojeISO(),
+                  concluidaPorId: responsavelId ?? s.usuarioAtualId,
+                  conclusaoObs: obs?.trim() || undefined,
+                  conclusaoFoto: foto,
+                  notas: obs?.trim() ? [...o.notas, { data: hojeISO(), texto: `Concluída: ${obs.trim()}` }] : o.notas,
+                }
+              : o,
+          ),
+          conferencias: comConferencia(s, 'Tarefa concluída', `${s.ordensServico.find((o) => o.id === id)?.titulo ?? id}${obs ? ` — ${obs.trim()}` : ''}`),
         })),
 
       addNotaOS: (id, nota) =>
@@ -1749,6 +1798,60 @@ export const useStore = create<Store>()(
           fazenda: destino === 'obito' && animal ? { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - 1 } : s.fazenda,
         })
         return { ok: true }
+      },
+
+      registrarEventoAnimal: ({ animalId, tipo, produto, itemEstoqueId, data, carenciaDias, obs }) => {
+        const s = get()
+        const animal = s.animais.find((a) => a.id === animalId && a.status === 'ativo')
+        if (!animal) return { ok: false, erro: 'Animal não encontrado no rebanho ativo.' }
+        if (!produto.trim()) return { ok: false, erro: 'Informe o produto.' }
+        if (!data || data > hojeISO()) return { ok: false, erro: 'A data não pode ser no futuro.' }
+        const item = itemEstoqueId ? s.estoque.find((i) => i.id === itemEstoqueId) : undefined
+        if (itemEstoqueId && !item) return { ok: false, erro: 'Insumo não encontrado no estoque.' }
+        if (item && item.saldo < 1) return { ok: false, erro: `${item.nome} sem saldo no estoque.` }
+        const carenciaAte = tipo === 'Tratamento' && carenciaDias && carenciaDias > 0 ? addDays(data, carenciaDias) : undefined
+        set({
+          animais: s.animais.map((a) =>
+            a.id === animalId ? { ...a, sanitario: [...a.sanitario, { data, tipo, produto: produto.trim(), carenciaAte, obs: obs?.trim() || undefined }] } : a,
+          ),
+          movEstoque: item
+            ? [...s.movEstoque, { id: nid('ME'), data, itemId: item.id, tipo: 'saida' as const, quantidade: 1, loteDestino: animal.brinco, obs: `${tipo} individual`, responsavelId: s.usuarioAtualId }]
+            : s.movEstoque,
+          estoque: item ? s.estoque.map((i) => (i.id === item.id ? { ...i, saldo: i.saldo - 1 } : i)) : s.estoque,
+          conferencias: comConferencia(s, tipo, `${animal.brinco} — ${produto.trim()}${carenciaAte ? ` (carência até ${carenciaAte.split('-').reverse().join('/')})` : ''}`),
+        })
+        return { ok: true }
+      },
+
+      updatePasto: (id, patch) =>
+        set((s) => ({ pastos: s.pastos.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
+
+      addTarefaSanitaria: (t) =>
+        set((s) => ({ tarefasSanitarias: [...s.tarefasSanitarias, { id: nid('TS'), ...t }] })),
+
+      concluirTarefaSanitaria: (id, manejoId) =>
+        set((s) => ({
+          tarefasSanitarias: s.tarefasSanitarias.map((t) => (t.id === id ? { ...t, concluidaEm: hojeISO(), manejoId } : t)),
+        })),
+
+      lancarPorMensagem: (texto) => {
+        const s = get()
+        const m = interpretarMensagem(texto)
+        if (!m) return { ok: false, erro: 'Não achei um valor na mensagem — escreva algo como "paguei 350 de diesel ontem".' }
+        const lancamento: Lancamento = {
+          id: nid('LC'), tipo: m.tipo, categoria: m.categoria, descricao: `WhatsApp: ${m.descricao}`, valor: m.valor,
+          vencimento: m.data, pagamento: m.pago ? m.data : undefined, origem: 'manual', centroCusto: m.centroCusto, responsavelId: s.usuarioAtualId,
+        }
+        const usuario = s.equipe.find((x) => x.id === s.usuarioAtualId)
+        set({
+          lancamentos: [...s.lancamentos, lancamento],
+          // mensagem interpretada sempre passa pelo visto do escritório, seja quem for que mandou
+          conferencias: [
+            ...s.conferencias,
+            { id: nid('CF'), tipo: 'WhatsApp', resumo: `${m.tipo === 'receita' ? 'Receita' : 'Despesa'} de R$ ${m.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} — ${m.categoria} (${m.descricao})`, responsavelId: usuario?.id ?? s.usuarioAtualId, lancadoEm: agoraISO(), status: 'pendente' as const },
+          ],
+        })
+        return { ok: true, lancamento }
       },
 
       resolverOcorrencia: (rondaId, index) =>

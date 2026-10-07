@@ -6,14 +6,15 @@ import { PageHeader } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
-  apartacoesPorMes, arrobasProduzidas, custoPorArroba, custoPorCentro, custoTotalRateado,
+  alertas, apartacoesPorMes, arrobasProduzidas, custoPorArroba, custoPorCentro, custoTotalRateado, gmdUltimos3,
   inventarioPorCategoria, metricasCria, metricasFinanceiro, metricasReproducao, nomeMembro,
-  partosPrevistosPorMes, previsaoApartacao, uaPorPasto, uaTotal, ativos,
+  partosPrevistosPorMes, previsaoApartacao, qtdLoteRecria, uaPorPasto, uaTotal, ativos,
 } from '@/lib/metrics'
 import { CATEGORIA_LABEL, type Categoria } from '@/data/types'
-import { PERFIL_INFO } from '@/data/seed'
+import { KG_POR_ARROBA, PERFIL_INFO } from '@/data/seed'
 import { fmtBRL, fmtDate, fmtKg1, fmtMesAno, fmtNum, fmtNum1, fmtNum2, fmtPct, hojeISO } from '@/lib/format'
 import { resumoConfinamento } from '@/lib/confinamento'
+import { incoerencias, metricasMes, dre as dreCalc, statusTarefa } from '@/lib/gestao'
 import type { Store } from '@/store/useStore'
 
 function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
@@ -245,12 +246,14 @@ function RelatorioDia({ state }: { state: Store }) {
   const salDia = doDia(state.fornecimentosSal)
   const cochoDia = doDia(state.leiturasCocho)
   const abatesDia = doDia(state.abates)
+  const tarefasDia = state.ordensServico.filter((o) => o.conclusao === hoje)
+  const calendarioDia = state.tarefasSanitarias.filter((t) => t.concluidaEm === hoje)
   const enfermariaDia = state.enfermaria.filter((e) => e.entrada === hoje || e.saida === hoje)
   const loteNome = (id: string) => state.lotes.find((l) => l.id === id)?.nome ?? id
 
   const nada =
     partos.length + desmames.length + manejos.length + rondas.length + movs.length +
-    estoqueDia.length + financeiroDia.length + pesagensLote.length + salDia.length + cochoDia.length + abatesDia.length + enfermariaDia.length === 0 &&
+    estoqueDia.length + financeiroDia.length + pesagensLote.length + salDia.length + cochoDia.length + abatesDia.length + enfermariaDia.length + tarefasDia.length + calendarioDia.length === 0 &&
     !leiteHoje
 
   return (
@@ -279,6 +282,17 @@ function RelatorioDia({ state }: { state: Store }) {
               fmtNum1(l.kgCalculado / l.cabecas),
               nomeMembro(state, l.responsavelId),
             ])}
+          />
+        </Secao>
+      )}
+      {(tarefasDia.length > 0 || calendarioDia.length > 0) && (
+        <Secao titulo="Tarefas concluídas hoje">
+          <TabelaRelatorio
+            cab={['Tarefa', 'Tipo', 'Por', 'Observação']}
+            linhas={[
+              ...tarefasDia.map((o) => [o.titulo, 'OS', nomeMembro(state, o.concluidaPorId), o.conclusaoObs ?? '—']),
+              ...calendarioDia.map((t) => [t.titulo, 'Calendário sanitário', '—', t.alvo]),
+            ]}
           />
         </Secao>
       )}
@@ -430,7 +444,69 @@ function RelatorioConfinamento({ state }: { state: Store }) {
   )
 }
 
+function RelatorioGerencial({ state }: { state: Store }) {
+  const inv = inventarioPorCategoria(state.animais)
+  const total = ativos(state.animais).length
+  const pesoVivo = ativos(state.animais).reduce((s, a) => s + a.pesoAtual, 0)
+  const fin = metricasFinanceiro(state)
+  const mes = metricasMes(state)
+  const d = dreCalc(state)
+  const al = alertas(state)
+  const inc = incoerencias(state)
+  const pend = state.conferencias.filter((c) => c.status === 'pendente')
+  const tarefasAtrasadas = state.tarefasSanitarias.filter((t) => statusTarefa(t) === 'atrasada')
+  const conf = state.lotesConfinamento.length > 0 ? resumoConfinamento(state) : null
+  return (
+    <>
+      <Secao titulo="Rebanho">
+        <LinhaDado rotulo="Cabeças ativas" valor={`${fmtNum(total)} · ${fmtNum1(pesoVivo / 1000)} t de peso vivo · ${fmtNum1(pesoVivo / KG_POR_ARROBA)} @`} />
+        <div className="mt-2">
+          <TabelaRelatorio cab={['Categoria', 'Cabeças']} linhas={(Object.entries(inv) as [Categoria, number][]).filter(([, q]) => q > 0).map(([c, q]) => [CATEGORIA_LABEL[c], fmtNum(q)])} />
+        </div>
+      </Secao>
+      {state.lotesRecria.length > 0 && (
+        <Secao titulo="GMD por lote de recria">
+          <TabelaRelatorio
+            cab={['Lote', 'Cab', 'Entrada', 'Peso atual', 'GMD (3 pesos)', 'Meta', 'Situação']}
+            linhas={state.lotesRecria.map((l) => {
+              const g = gmdUltimos3(l)
+              const ult = [...l.pesagens].sort((a, b) => a.data.localeCompare(b.data)).at(-1)
+              return [l.nome, fmtNum(qtdLoteRecria(state.animais, l.id)), fmtDate(l.dataEntrada), ult ? fmtKg1(ult.peso) : '—', fmtNum2(g), fmtNum2(l.gmdMeta), g >= l.gmdMeta ? 'na meta' : 'abaixo da meta']
+            })}
+          />
+        </Secao>
+      )}
+      {conf && (
+        <Secao titulo="Confinamento">
+          <LinhaDado rotulo="Cabeças no cocho" valor={`${fmtNum(conf.cab)} · GMD ${fmtNum2(conf.gmd)} · conversão ${fmtNum1(conf.conversaoAlimentar)}`} />
+          <LinhaDado rotulo="Custo/@ produzida × cotação" valor={`${fmtBRL(conf.custoArrobaProduzida)} × ${fmtBRL(conf.precoArroba)}`} />
+          <LinhaDado rotulo="Margem projetada" valor={fmtBRL(conf.margemProjetada)} />
+        </Secao>
+      )}
+      <Secao titulo="Financeiro">
+        <LinhaDado rotulo={`Resultado do mês (${fmtMesAno(mes.mes + '-01')})`} valor={`${fmtBRL(mes.resMes)} (receitas ${fmtBRL(mes.recMes)} · despesas ${fmtBRL(mes.despMes)})`} />
+        <LinhaDado rotulo="Resultado 12 meses" valor={`${fmtBRL(d.resultado)} · margem ${fmtPct(d.margemPct)}`} />
+        <LinhaDado rotulo="A pagar / a receber" valor={`${fmtBRL(fin.aPagar)} / ${fmtBRL(fin.aReceber)}`} />
+        <LinhaDado rotulo="Contas vencidas" valor={fmtNum(fin.vencidas)} />
+        <LinhaDado rotulo="Custo por @ produzida" valor={fmtBRL(custoPorArroba(state))} />
+      </Secao>
+      <Secao titulo="Controle">
+        <LinhaDado rotulo="Alertas ativos" valor={`${fmtNum(al.length)} (${al.filter((a) => a.severidade === 'critical').length} graves)`} />
+        <LinhaDado rotulo="Lançamentos aguardando conferência" valor={fmtNum(pend.length)} />
+        <LinhaDado rotulo="Incoerências apontadas" valor={fmtNum(inc.length)} />
+        <LinhaDado rotulo="Tarefas sanitárias atrasadas" valor={fmtNum(tarefasAtrasadas.length)} />
+        {al.length > 0 && (
+          <div className="mt-2">
+            <TabelaRelatorio cab={['Alerta', 'Detalhe']} linhas={al.slice(0, 12).map((a) => [a.titulo, a.detalhe])} />
+          </div>
+        )}
+      </Secao>
+    </>
+  )
+}
+
 const TITULOS = {
+  gerencial: 'Relatório Gerencial',
   dia: 'Fechamento do Dia',
   confinamento: 'Painel do Confinamento',
   safra: 'Relatório da Safra',
@@ -443,7 +519,7 @@ export default function Relatorios() {
   const [searchParams] = useSearchParams()
   const relParam = searchParams.get('rel')
   const [tipo, setTipo] = useState<keyof typeof TITULOS>(
-    relParam && relParam in TITULOS ? (relParam as keyof typeof TITULOS) : 'safra',
+    relParam && relParam in TITULOS ? (relParam as keyof typeof TITULOS) : 'gerencial',
   )
   const info = PERFIL_INFO[state.perfil]
   const tipos = (Object.keys(TITULOS) as (keyof typeof TITULOS)[]).filter((t) => t !== 'confinamento' || state.lotesConfinamento.length > 0)
@@ -493,6 +569,7 @@ export default function Relatorios() {
         </div>
 
         {tipo === 'dia' && <RelatorioDia state={state} />}
+        {tipo === 'gerencial' && <RelatorioGerencial state={state} />}
         {tipo === 'confinamento' && <RelatorioConfinamento state={state} />}
         {tipo === 'safra' && <RelatorioSafra state={state} />}
         {tipo === 'inventario' && <RelatorioInventario state={state} />}

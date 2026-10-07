@@ -1,6 +1,7 @@
 import { useState, Fragment } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Plus, Syringe, CheckCircle2, X, Camera } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Plus, Syringe, CheckCircle2, X, Camera, CalendarPlus } from 'lucide-react'
 import { reduzirFoto } from '@/lib/imagem'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard, FormRow } from '@/components/shared'
@@ -14,8 +15,18 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { toast } from '@/components/ui/toast'
 import { ativos, ocorrenciasAbertas } from '@/lib/metrics'
-import { fmtDate, fmtNum, hojeISO } from '@/lib/format'
-import type { ManejoSanitario, TipoOcorrencia } from '@/data/types'
+import { animaisEmCarencia, coberturaVacinal, statusTarefa } from '@/lib/gestao'
+import { addDays } from '@/data/seed'
+import { fmtDate, fmtNum, fmtPct, hojeISO } from '@/lib/format'
+import type { ManejoSanitario, TarefaSanitaria, TipoOcorrencia } from '@/data/types'
+
+const STATUS_TAREFA = {
+  atrasada: { rotulo: 'Atrasada', variante: 'critical' as const },
+  hoje: { rotulo: 'Hoje', variante: 'warning' as const },
+  proxima: { rotulo: 'Próxima', variante: 'info' as const },
+  futura: { rotulo: 'Agendada', variante: 'default' as const },
+  concluida: { rotulo: 'Feita', variante: 'good' as const },
+}
 
 const TIPO_MANEJO_LABEL: Record<ManejoSanitario['tipo'], string> = {
   vacinacao: 'Vacinação',
@@ -33,11 +44,20 @@ const TIPO_OCORRENCIA_LABEL: Record<TipoOcorrencia, string> = {
 export default function Sanitario() {
   const state = useStore()
   const resolverOcorrencia = useStore((s) => s.resolverOcorrencia)
+  const concluirTarefa = useStore((s) => s.concluirTarefaSanitaria)
   const [manejoOpen, setManejoOpen] = useState(false)
+  const [tarefaParaManejo, setTarefaParaManejo] = useState<TarefaSanitaria | null>(null)
+  const [novaTarefaOpen, setNovaTarefaOpen] = useState(false)
   const [rondaOpen, setRondaOpen] = useState(false)
   const [rondaExpandida, setRondaExpandida] = useState('')
   const [searchParams] = useSearchParams()
-  const tabInicial = searchParams.get('tab') === 'rondas' ? 'rondas' : 'manejos'
+  const tabParam = searchParams.get('tab') ?? ''
+  const tabInicial = ['rondas', 'manejos', 'calendario', 'cobertura'].includes(tabParam) ? tabParam : 'calendario'
+  const tarefas = [...state.tarefasSanitarias].sort((a, b) => a.data.localeCompare(b.data))
+  const porStatus = (st: ReturnType<typeof statusTarefa>) => tarefas.filter((t) => statusTarefa(t, hojeISO()) === st)
+  const cobertura = coberturaVacinal(state)
+  const carencia = animaisEmCarencia(state)
+  const loteNomeDe = (id?: string) => state.lotes.find((l) => l.id === id)?.nome
 
   const hoje = hojeISO()
   const mesAtual = hoje.slice(0, 7)
@@ -72,14 +92,18 @@ export default function Sanitario() {
         }
       />
 
-      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+      <div className="mb-3 grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+        <StatCard label="Tarefas atrasadas" value={fmtNum(porStatus('atrasada').length)} detail={`${porStatus('hoje').length} para hoje · ${porStatus('proxima').length} em 30 dias`} tone={porStatus('atrasada').length > 0 ? 'critical' : 'good'}
+          hint="Calendário sanitário: vacinas, vermifugações e reforços com data marcada." />
+        <StatCard label="Cobertura aftosa" value={fmtPct(cobertura[0]?.pct ?? 0)} detail={`${fmtNum(cobertura[0]?.cobertos ?? 0)} de ${fmtNum(cobertura[0]?.elegiveis ?? 0)} nos últimos 6 meses`} tone={(cobertura[0]?.pct ?? 0) >= 95 ? 'good' : 'warning'} />
+        <StatCard label="Em carência" value={fmtNum(carencia.length)} detail="não podem ir para abate" tone={carencia.length > 0 ? 'warning' : 'good'}
+          hint="Animais tratados com medicamento cuja carência ainda não terminou." />
         <StatCard
           label="Animais tratados no mês"
           value={fmtNum(animaisTratadosMes)}
           detail="soma dos manejos em lote"
           hint="Total de animais alcançados por vacinação, vermifugação ou medicação em lote neste mês."
         />
-        <StatCard label="Manejos registrados" value={fmtNum(state.manejosSanitarios.length)} detail="histórico de campanhas" />
         <StatCard label="Rondas no mês" value={fmtNum(rondasMes)} detail={`${state.rondas.length} no histórico`} />
         <StatCard
           label="Ocorrências em aberto"
@@ -91,9 +115,106 @@ export default function Sanitario() {
 
       <Tabs defaultValue={tabInicial}>
         <TabsList>
+          <TabsTrigger value="calendario">Calendário ({fmtNum(tarefas.filter((t) => !t.concluidaEm).length)})</TabsTrigger>
+          <TabsTrigger value="cobertura">Cobertura e carência</TabsTrigger>
           <TabsTrigger value="manejos">Manejos em lote ({fmtNum(state.manejosSanitarios.length)})</TabsTrigger>
           <TabsTrigger value="rondas">Rondas sanitárias ({fmtNum(state.rondas.length)})</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="calendario">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[12px] text-muted-foreground">Atrasadas primeiro. "Fazer agora" abre o manejo em lote já preenchido e marca a tarefa como feita.</span>
+            <Button size="sm" variant="secondary" onClick={() => setNovaTarefaOpen(true)}><CalendarPlus className="h-3.5 w-3.5" /> Agendar tarefa</Button>
+          </div>
+          <div className="rounded-lg border bg-card">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Quando</TableHead>
+                  <TableHead>Situação</TableHead>
+                  <TableHead>Tarefa</TableHead>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Alvo</TableHead>
+                  <TableHead>Insumo</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {[...porStatus('atrasada'), ...porStatus('hoje'), ...porStatus('proxima'), ...porStatus('futura'), ...porStatus('concluida')].map((t) => {
+                  const st = statusTarefa(t, hoje)
+                  const item = state.estoque.find((i) => i.id === t.itemEstoqueId)
+                  return (
+                    <TableRow key={t.id} className={st === 'atrasada' ? 'bg-red-50/40' : ''}>
+                      <TableCell className="tnum">{fmtDate(t.data)}{st === 'atrasada' ? <span className="ml-1 text-[10px] text-red-700">({Math.round((new Date(hoje).getTime() - new Date(t.data).getTime()) / 86400000)} d)</span> : ''}</TableCell>
+                      <TableCell><Badge variant={STATUS_TAREFA[st].variante}>{STATUS_TAREFA[st].rotulo}</Badge></TableCell>
+                      <TableCell className="font-medium">{t.titulo}</TableCell>
+                      <TableCell>{TIPO_MANEJO_LABEL[t.tipo]}</TableCell>
+                      <TableCell className="text-muted-foreground">{loteNomeDe(t.loteId) ?? t.alvo}</TableCell>
+                      <TableCell className="text-muted-foreground">{item ? `${item.nome} (saldo ${fmtNum(item.saldo)})` : '—'}</TableCell>
+                      <TableCell className="text-right">
+                        {t.concluidaEm ? (
+                          <span className="text-[11px] text-muted-foreground">feita em {fmtDate(t.concluidaEm)}</span>
+                        ) : (
+                          <div className="inline-flex gap-1">
+                            <Button size="sm" variant="secondary" onClick={() => { setTarefaParaManejo(t); setManejoOpen(true) }}><Syringe className="h-3 w-3" /> Fazer agora</Button>
+                            <Button size="sm" variant="ghost" onClick={() => { concluirTarefa(t.id); toast(`"${t.titulo}" marcada como feita.`) }}><CheckCircle2 className="h-3 w-3" /></Button>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+            <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">
+              Tarefas atrasadas viram alerta no Dashboard. O insumo da tarefa já aparece com o saldo para você conferir antes do dia.
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="cobertura">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="rounded-lg border bg-card">
+              <div className="border-b px-3 py-2 text-[13px] font-semibold">Cobertura vacinal (animais ativos dentro da validade)</div>
+              <div className="space-y-3 px-3 py-3">
+                {cobertura.map((v) => (
+                  <div key={v.chave}>
+                    <div className="flex items-center justify-between text-[12px]">
+                      <span className="font-medium">{v.nome}</span>
+                      <span className="tnum text-muted-foreground">{fmtNum(v.cobertos)} / {fmtNum(v.elegiveis)} · <span className={v.pct >= 95 ? 'text-green-700' : v.pct >= 80 ? 'text-amber-700' : 'text-red-700'}>{fmtPct(v.pct)}</span></span>
+                    </div>
+                    <div className="mt-1 h-2 overflow-hidden rounded-full bg-secondary">
+                      <div className={`h-full rounded-full ${v.pct >= 95 ? 'bg-green-600' : v.pct >= 80 ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${Math.min(100, v.pct)}%` }} />
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">validade considerada: {v.meses >= 120 ? 'dose única' : `${v.meses} meses`}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">Conta quem tem a vacina no histórico dentro do prazo. Vacina vencida = animal descoberto.</div>
+            </div>
+            <div className="rounded-lg border bg-card">
+              <div className="border-b px-3 py-2 text-[13px] font-semibold">Animais em carência ({carencia.length})</div>
+              <Table>
+                <TableHeader>
+                  <TableRow><TableHead>Brinco</TableHead><TableHead>Lote</TableHead><TableHead>Tratamento</TableHead><TableHead>Liberado em</TableHead><TableHead className="text-right">Faltam</TableHead></TableRow>
+                </TableHeader>
+                <TableBody>
+                  {carencia.length === 0 && <TableRow><TableCell colSpan={5} className="text-muted-foreground">Nenhum animal em carência.</TableCell></TableRow>}
+                  {carencia.map((c) => (
+                    <TableRow key={c.animal.id + c.ate}>
+                      <TableCell><Link to={`/rebanho/${c.animal.id}?tab=sanidade`} className="font-medium text-primary hover:underline">{c.animal.brinco}</Link></TableCell>
+                      <TableCell className="text-muted-foreground">{loteNomeDe(c.animal.loteId) ?? c.animal.loteId}</TableCell>
+                      <TableCell>{c.produto}</TableCell>
+                      <TableCell className="tnum">{fmtDate(c.ate)}</TableCell>
+                      <TableCell className="tnum text-right"><Badge variant={c.diasRestantes <= 3 ? 'good' : 'warning'}>{c.diasRestantes} d</Badge></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="border-t px-3 py-1.5 text-[11px] text-muted-foreground">Tratamento registrado na ficha (botão "Tratar") ou na enfermaria do confinamento. Até a data, o animal não pode ser abatido.</div>
+            </div>
+          </div>
+        </TabsContent>
 
         <TabsContent value="manejos">
           <div className="rounded-lg border bg-card">
@@ -226,20 +347,29 @@ export default function Sanitario() {
         </TabsContent>
       </Tabs>
 
-      <ManejoDialog open={manejoOpen} onClose={() => setManejoOpen(false)} />
+      <ManejoDialog
+        key={tarefaParaManejo?.id ?? 'livre'}
+        open={manejoOpen}
+        onClose={() => { setManejoOpen(false); setTarefaParaManejo(null) }}
+        tarefa={tarefaParaManejo ?? undefined}
+        onFeito={(manejoId) => { if (tarefaParaManejo) concluirTarefa(tarefaParaManejo.id, manejoId) }}
+      />
+      <NovaTarefaDialog open={novaTarefaOpen} onClose={() => setNovaTarefaOpen(false)} />
       <RondaDialog open={rondaOpen} onClose={() => setRondaOpen(false)} />
     </div>
   )
 }
 
-function ManejoDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function ManejoDialog({ open, onClose, tarefa, onFeito }: { open: boolean; onClose: () => void; tarefa?: TarefaSanitaria; onFeito?: (manejoId?: string) => void }) {
   const { estoque, lotes, animais, registrarManejoLote } = useStore()
   const insumos = estoque.filter((i) => ['vacina', 'medicamento', 'hormonio'].includes(i.categoria))
   const [data, setData] = useState(hojeISO())
-  const [tipo, setTipo] = useState<ManejoSanitario['tipo']>('vacinacao')
-  const [itemId, setItemId] = useState(insumos[0]?.id ?? '')
-  const [loteId, setLoteId] = useState('') // '' = rebanho geral
-  const [dose, setDose] = useState('1')
+  const [tipo, setTipo] = useState<ManejoSanitario['tipo']>(tarefa?.tipo ?? 'vacinacao')
+  const [itemId, setItemId] = useState(tarefa?.itemEstoqueId && insumos.some((i) => i.id === tarefa.itemEstoqueId) ? tarefa.itemEstoqueId : (insumos[0]?.id ?? ''))
+  const [loteId, setLoteId] = useState(tarefa?.loteId ?? '') // '' = rebanho geral
+  // frasco rende ~35 animais; vacina/hormônio é 1 dose por cabeça
+  const doseSugerida = (id: string) => (estoque.find((i) => i.id === id)?.unidade === 'frasco' ? '0,03' : '1')
+  const [dose, setDose] = useState(() => doseSugerida(tarefa?.itemEstoqueId && insumos.some((i) => i.id === tarefa.itemEstoqueId) ? tarefa.itemEstoqueId : (insumos[0]?.id ?? '')))
   const [responsavel, setResponsavel] = useState('')
   const [erro, setErro] = useState('')
 
@@ -247,10 +377,11 @@ function ManejoDialog({ open, onClose }: { open: boolean; onClose: () => void })
     ? ativos(animais).filter((a) => a.loteId === loteId).length
     : ativos(animais).length
   const item = estoque.find((i) => i.id === itemId)
-  const consumo = Math.ceil(alvoQtd * (Number(dose) || 0) * 100) / 100
+  const doseN = Number(dose.replace(',', '.')) || 0
+  const consumo = Math.ceil(alvoQtd * doseN * 100) / 100
 
   const salvar = () => {
-    if (!itemId || !responsavel.trim() || !(Number(dose) > 0)) {
+    if (!itemId || !responsavel.trim() || !(doseN > 0)) {
       setErro('Informe o insumo, a dose por animal e o responsável.')
       return
     }
@@ -259,20 +390,21 @@ function ManejoDialog({ open, onClose }: { open: boolean; onClose: () => void })
       tipo,
       itemEstoqueId: itemId,
       loteId: loteId || undefined,
-      dosePorAnimal: Number(dose),
+      dosePorAnimal: doseN,
       responsavel: responsavel.trim(),
     })
     if (!r.ok) {
       setErro(r.erro ?? 'Não foi possível registrar o manejo.')
       return
     }
-    toast(`${TIPO_MANEJO_LABEL[tipo]} registrada em ${fmtNum(r.qtdAnimais ?? 0)} animais — estoque baixado e fichas atualizadas.`)
+    toast(`${TIPO_MANEJO_LABEL[tipo]} registrada em ${fmtNum(r.qtdAnimais ?? 0)} animais — estoque baixado e fichas atualizadas.${tarefa ? ' Tarefa do calendário marcada como feita.' : ''}`)
+    onFeito?.()
     setErro(''); setResponsavel('')
     onClose()
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Registrar manejo em lote">
+    <Dialog open={open} onClose={onClose} title={tarefa ? `Fazer agora — ${tarefa.titulo}` : 'Registrar manejo em lote'}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <FormRow label="Data">
           <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />
@@ -285,7 +417,7 @@ function ManejoDialog({ open, onClose }: { open: boolean; onClose: () => void })
           </Select>
         </FormRow>
         <FormRow label="Insumo (do Estoque)">
-          <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
+          <Select value={itemId} onChange={(e) => { setItemId(e.target.value); setDose(doseSugerida(e.target.value)) }}>
             {insumos.map((i) => (
               <option key={i.id} value={i.id}>{i.nome} — saldo {fmtNum(i.saldo)} {i.unidade}</option>
             ))}
@@ -300,7 +432,7 @@ function ManejoDialog({ open, onClose }: { open: boolean; onClose: () => void })
           </Select>
         </FormRow>
         <FormRow label={`Dose por animal (${item?.unidade ?? 'un'})`}>
-          <Input type="number" step="0.01" min="0.01" value={dose} onChange={(e) => setDose(e.target.value)} />
+          <Input value={dose} onChange={(e) => setDose(e.target.value)} placeholder="1" />
         </FormRow>
         <FormRow label="Responsável">
           <Input value={responsavel} onChange={(e) => setResponsavel(e.target.value)} placeholder="Equipe de campo" />
@@ -322,6 +454,54 @@ function ManejoDialog({ open, onClose }: { open: boolean; onClose: () => void })
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
         <Button onClick={salvar}>Registrar manejo</Button>
+      </div>
+    </Dialog>
+  )
+}
+
+function NovaTarefaDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { estoque, lotes, addTarefaSanitaria } = useStore()
+  const insumos = estoque.filter((i) => ['vacina', 'medicamento'].includes(i.categoria))
+  const [titulo, setTitulo] = useState('')
+  const [data, setData] = useState(addDays(hojeISO(), 7))
+  const [tipo, setTipo] = useState<ManejoSanitario['tipo']>('vacinacao')
+  const [loteId, setLoteId] = useState('')
+  const [itemId, setItemId] = useState('')
+  const salvar = () => {
+    if (!titulo.trim()) return
+    addTarefaSanitaria({ titulo: titulo.trim(), data, tipo, alvo: loteId ? (lotes.find((l) => l.id === loteId)?.nome ?? loteId) : 'Rebanho geral', loteId: loteId || undefined, itemEstoqueId: itemId || undefined })
+    toast(`Tarefa "${titulo.trim()}" agendada para ${fmtDate(data)}.`)
+    setTitulo('')
+    onClose()
+  }
+  return (
+    <Dialog open={open} onClose={onClose} title="Agendar tarefa sanitária">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <FormRow label="Tarefa"><Input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Reforço de clostridiose" /></FormRow>
+        <FormRow label="Data"><Input type="date" value={data} onChange={(e) => setData(e.target.value)} /></FormRow>
+        <FormRow label="Tipo">
+          <Select value={tipo} onChange={(e) => setTipo(e.target.value as ManejoSanitario['tipo'])}>
+            <option value="vacinacao">Vacinação</option>
+            <option value="vermifugacao">Vermifugação</option>
+            <option value="medicacao">Medicação</option>
+          </Select>
+        </FormRow>
+        <FormRow label="Lote / alvo">
+          <Select value={loteId} onChange={(e) => setLoteId(e.target.value)}>
+            <option value="">Rebanho geral</option>
+            {lotes.map((l) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </Select>
+        </FormRow>
+        <FormRow label="Insumo (opcional)">
+          <Select value={itemId} onChange={(e) => setItemId(e.target.value)}>
+            <option value="">—</option>
+            {insumos.map((i) => <option key={i.id} value={i.id}>{i.nome}</option>)}
+          </Select>
+        </FormRow>
+      </div>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+        <Button onClick={salvar}>Agendar</Button>
       </div>
     </Dialog>
   )
