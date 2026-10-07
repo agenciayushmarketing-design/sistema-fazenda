@@ -1,12 +1,16 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { toast } from '@/components/ui/toast'
-import { addDays, buildSeed, diffDays, META_SAL_G_CAB_DIA, NOTAS_COCHO } from '@/data/seed'
+import { addDays, buildSeed, CONFINAMENTO, diffDays, KG_POR_ARROBA, META_SAL_G_CAB_DIA, NOTAS_COCHO } from '@/data/seed'
 import { agoraISO, hojeISO } from '@/lib/format'
 import { CATEGORIA_LABEL } from '@/data/types'
+import { resumoLote } from '@/lib/confinamento'
 import type {
+  Abate,
   Animal,
   Categoria,
+  Dieta,
+  LoteConfinamento,
   Conferencia,
   ConfigFazenda,
   Desmame,
@@ -32,7 +36,7 @@ import type {
 } from '@/data/types'
 
 const STORAGE_KEY = 'fazenda-santa-helena-demo'
-const VERSAO_DEMO = 8
+const VERSAO_DEMO = 9
 
 /** localStorage que nunca derruba o app: se o espaço do navegador encher (fotos!), avisa */
 let avisouEspaco = false
@@ -219,6 +223,61 @@ interface Actions {
     kgOntem: number
     itemEstoqueId: string
   }) => { ok: boolean; erro?: string; kgCalculado?: number }
+
+  // Confinamento — cocho por baia, dietas, abate e enfermaria
+  /** Leitura da baia: nota + sobra pesada → trato do dia; a batida baixa cada ingrediente da dieta */
+  registrarTratoConfinamento: (p: {
+    data: string
+    loteId: string
+    nota: 0 | 1 | 2 | 3 | 4
+    sobraKg: number
+    kgOntem: number
+    kgTrato: number
+  }) => { ok: boolean; erro?: string }
+  /** Pesagem intermediária: peso médio do lote; cada animal recebe o peso mantendo a diferença dele */
+  pesarLoteConfinamento: (loteId: string, pes: Pesagem) => { ok: boolean; erro?: string }
+  trocarDietaLote: (loteId: string, dietaId: string) => { ok: boolean; erro?: string }
+  updateDieta: (id: string, patch: Pick<Dieta, 'ingredientes' | 'msPct' | 'consumoMSPctPV' | 'diasPrevistos'>) => { ok: boolean; erro?: string }
+  /** Apartação por peso: os N mais pesados vão para outra baia como lote novo */
+  apartarPorPeso: (p: { loteId: string; qtd: number; baiaId: string; nome: string }) => { ok: boolean; erro?: string }
+  /** Entrada de lote novo: cria os animais, ocupa a baia e lança a compra no Financeiro */
+  entradaLoteConfinamento: (p: {
+    nome: string
+    baiaId: string
+    qtd: number
+    pesoEntrada: number
+    origem: LoteConfinamento['origem']
+    fornecedor?: string
+    agioPct: number
+    precoArrobaMagro: number
+    custoRecriaCab: number
+    dietaId: string
+    pesoAbateAlvo: number
+    rendimentoEstimado: number
+    diasCochoPlano: number
+    gmdMeta: number
+    vencimento?: string
+  }) => { ok: boolean; erro?: string }
+  /** Abate: romaneio do frigorífico → rendimento real, receita no Financeiro e baixa dos animais */
+  registrarAbate: (p: {
+    loteId: string
+    qtd: number
+    data: string
+    frigorifico: string
+    pesoCarcacaTotal: number
+    precoArroba: number
+    vencimento?: string
+  }) => { ok: boolean; erro?: string; abate?: Abate }
+  entradaEnfermaria: (p: {
+    animalId: string
+    diagnostico: string
+    tratamento: string
+    itemEstoqueId?: string
+    custo: number
+    diasTratamento: number
+    carenciaDias: number
+  }) => { ok: boolean; erro?: string }
+  saidaEnfermaria: (id: string, destino: 'alta' | 'obito') => { ok: boolean; erro?: string }
 }
 
 export type Store = SeedData & Actions
@@ -1343,6 +1402,353 @@ export const useStore = create<Store>()(
           ),
         })
         return { ok: true, kgCalculado }
+      },
+
+
+      // ---- Confinamento ----
+      registrarTratoConfinamento: ({ data, loteId, nota, sobraKg, kgOntem, kgTrato }) => {
+        const s = get()
+        const lote = s.lotesConfinamento.find((l) => l.id === loteId && l.status === 'ativo')
+        if (!lote) return { ok: false, erro: 'Lote não encontrado.' }
+        const dieta = s.dietas.find((d) => d.id === lote.dietaId)
+        if (!dieta) return { ok: false, erro: 'O lote está sem dieta — defina a dieta antes do trato.' }
+        if (s.leiturasCocho.some((l) => l.loteId === loteId && l.data === data)) {
+          return { ok: false, erro: 'A leitura dessa baia já foi feita nesse dia.' }
+        }
+        if (!(kgTrato > 0)) return { ok: false, erro: 'Informe o trato do dia em kg.' }
+        if (sobraKg < 0 || sobraKg > kgOntem) return { ok: false, erro: 'A sobra não pode passar do trato de ontem.' }
+        const cabecas = s.animais.filter((a) => a.status === 'ativo' && a.loteId === loteId).length
+        if (cabecas === 0) return { ok: false, erro: 'Essa baia está sem animais.' }
+        // batida: cada ingrediente sai do estoque na proporção da dieta
+        const saidas = dieta.ingredientes.map((ing) => ({
+          itemId: ing.itemEstoqueId,
+          kg: Math.round((kgTrato * ing.pct) / 100),
+        }))
+        for (const sd of saidas) {
+          const item = s.estoque.find((i) => i.id === sd.itemId)
+          if (!item) return { ok: false, erro: `Ingrediente ${sd.itemId} não está no estoque.` }
+          if (sd.kg > item.saldo) {
+            return { ok: false, erro: `${item.nome}: a batida pede ${sd.kg.toLocaleString('pt-BR')} kg e o estoque tem ${item.saldo.toLocaleString('pt-BR')} kg.` }
+          }
+        }
+        const baia = s.baias.find((b) => b.id === lote.baiaId)
+        set({
+          leiturasCocho: [
+            ...s.leiturasCocho,
+            {
+              id: nid('LT'), data, loteId, baiaId: lote.baiaId, nota, cabecas, kgOntem, kgCalculado: kgTrato, sobraKg,
+              dietaId: dieta.id, itemEstoqueId: dieta.ingredientes[0].itemEstoqueId, responsavelId: s.usuarioAtualId,
+            },
+          ],
+          movEstoque: [
+            ...s.movEstoque,
+            ...saidas.filter((sd) => sd.kg > 0).map((sd) => ({
+              id: nid('ME'), data, itemId: sd.itemId, tipo: 'saida' as const, quantidade: sd.kg,
+              loteDestino: `${baia?.nome ?? lote.baiaId} — ${lote.nome}`, obs: `Batida ${dieta.nome} (leitura nota ${nota})`, responsavelId: s.usuarioAtualId,
+            })),
+          ],
+          estoque: s.estoque.map((i) => {
+            const sd = saidas.find((x) => x.itemId === i.id)
+            return sd ? { ...i, saldo: i.saldo - sd.kg } : i
+          }),
+          conferencias: comConferencia(s, 'Leitura de cocho', `${baia?.nome ?? lote.nome}: nota ${nota}, sobra ${sobraKg.toLocaleString('pt-BR')} kg → trato ${kgTrato.toLocaleString('pt-BR')} kg`),
+        })
+        return { ok: true }
+      },
+
+      pesarLoteConfinamento: (loteId, pes) => {
+        const s = get()
+        const lote = s.lotesConfinamento.find((l) => l.id === loteId && l.status === 'ativo')
+        if (!lote) return { ok: false, erro: 'Lote não encontrado.' }
+        if (!(pes.peso > 0)) return { ok: false, erro: 'Informe o peso médio.' }
+        if (pes.data > hojeISO()) return { ok: false, erro: 'A pesagem não pode ser no futuro.' }
+        const an = s.animais.filter((a) => a.status === 'ativo' && a.loteId === loteId)
+        const mediaAtual = an.length > 0 ? an.reduce((t, a) => t + a.pesoAtual, 0) / an.length : pes.peso
+        const ids = new Set(an.map((a) => a.id))
+        set({
+          lotesConfinamento: s.lotesConfinamento.map((l) =>
+            l.id === loteId ? { ...l, pesagens: [...l.pesagens.filter((p) => p.data !== pes.data), pes].sort((a, b) => a.data.localeCompare(b.data)) } : l,
+          ),
+          animais: s.animais.map((a) => {
+            if (!ids.has(a.id)) return a
+            const peso = Math.round((pes.peso + (a.pesoAtual - mediaAtual)) * 10) / 10
+            const pesagens = [...a.pesagens.filter((p) => p.data !== pes.data), { data: pes.data, peso }].sort((x, y) => x.data.localeCompare(y.data))
+            return { ...a, pesagens, pesoAtual: pesagens[pesagens.length - 1].peso }
+          }),
+          conferencias: comConferencia(s, 'Pesagem de lote', `${lote.nome} — ${pes.peso.toLocaleString('pt-BR')} kg médio (${an.length} cab)`),
+        })
+        return { ok: true }
+      },
+
+      trocarDietaLote: (loteId, dietaId) => {
+        const s = get()
+        const lote = s.lotesConfinamento.find((l) => l.id === loteId && l.status === 'ativo')
+        const dieta = s.dietas.find((d) => d.id === dietaId)
+        if (!lote || !dieta) return { ok: false, erro: 'Lote ou dieta não encontrados.' }
+        if (lote.dietaId === dietaId) return { ok: false, erro: 'O lote já está nessa dieta.' }
+        const hoje = hojeISO()
+        set({
+          lotesConfinamento: s.lotesConfinamento.map((l) =>
+            l.id === loteId
+              ? { ...l, dietaId, fase: dieta.fase, historicoDieta: [...l.historicoDieta.filter((h) => h.data !== hoje), { data: hoje, dietaId, fase: dieta.fase }] }
+              : l,
+          ),
+          conferencias: comConferencia(s, 'Troca de dieta', `${lote.nome} → ${dieta.nome}`),
+        })
+        return { ok: true }
+      },
+
+      updateDieta: (id, patch) => {
+        const s = get()
+        if (!s.dietas.some((d) => d.id === id)) return { ok: false, erro: 'Dieta não encontrada.' }
+        const soma = patch.ingredientes.reduce((t, i) => t + i.pct, 0)
+        if (Math.round(soma) !== 100) return { ok: false, erro: `Os ingredientes precisam somar 100% (atual: ${Math.round(soma)}%).` }
+        if (!(patch.msPct > 0 && patch.msPct <= 100)) return { ok: false, erro: 'Matéria seca entre 1 e 100%.' }
+        if (!(patch.consumoMSPctPV > 0 && patch.consumoMSPctPV < 5)) return { ok: false, erro: 'Consumo de MS entre 0,1 e 5% do peso vivo.' }
+        set({ dietas: s.dietas.map((d) => (d.id === id ? { ...d, ...patch } : d)) })
+        return { ok: true }
+      },
+
+      apartarPorPeso: ({ loteId, qtd, baiaId, nome }) => {
+        const s = get()
+        const lote = s.lotesConfinamento.find((l) => l.id === loteId && l.status === 'ativo')
+        if (!lote) return { ok: false, erro: 'Lote não encontrado.' }
+        const baia = s.baias.find((b) => b.id === baiaId)
+        if (!baia) return { ok: false, erro: 'Escolha a baia de destino.' }
+        if (s.lotesConfinamento.some((l) => l.status === 'ativo' && l.baiaId === baiaId)) return { ok: false, erro: `${baia.nome} está ocupada.` }
+        if (!nome.trim()) return { ok: false, erro: 'Dê um nome ao lote novo.' }
+        const an = s.animais.filter((a) => a.status === 'ativo' && a.loteId === loteId).sort((a, b) => b.pesoAtual - a.pesoAtual)
+        if (!Number.isInteger(qtd) || qtd <= 0 || qtd >= an.length) {
+          return { ok: false, erro: `Informe entre 1 e ${an.length - 1} cabeças para apartar.` }
+        }
+        if (qtd > baia.capacidade) return { ok: false, erro: `${baia.nome} comporta ${baia.capacidade} cabeças.` }
+        const alvo = an.slice(0, qtd)
+        const ids = new Set(alvo.map((a) => a.id))
+        const novoId = nid('CF')
+        // curva média do lote novo e do que ficou, recalculadas dos animais
+        const curva = (lista: Animal[]) => {
+          const porData = new Map<string, number[]>()
+          for (const a of lista) for (const p of a.pesagens) porData.set(p.data, [...(porData.get(p.data) ?? []), p.peso])
+          return [...porData.entries()]
+            .map(([data, pesos]) => ({ data, peso: Math.round((pesos.reduce((t, x) => t + x, 0) / pesos.length) * 10) / 10 }))
+            .sort((a, b) => a.data.localeCompare(b.data))
+        }
+        const curvaNovo = curva(alvo)
+        const restantes = an.filter((a) => !ids.has(a.id))
+        const hoje = hojeISO()
+        set({
+          lotes: [...s.lotes, { id: novoId, nome: nome.trim(), pastoId: s.lotes.find((l) => l.id === loteId)?.pastoId ?? '', finalidade: 'terminacao' as const }],
+          lotesConfinamento: [
+            ...s.lotesConfinamento.map((l) => (l.id === loteId ? { ...l, qtdEntrada: l.qtdEntrada - qtd, pesagens: curva(restantes) } : l)),
+            { ...lote, id: novoId, nome: nome.trim(), baiaId, qtdEntrada: qtd, pesoEntrada: curvaNovo[0]?.peso ?? lote.pesoEntrada, pesagens: curvaNovo, historicoDieta: [...lote.historicoDieta] },
+          ],
+          animais: s.animais.map((a) => (ids.has(a.id) ? { ...a, loteId: novoId } : a)),
+          movimentacoes: [
+            ...s.movimentacoes,
+            {
+              id: nid('MV'), data: hoje, tipo: 'transferencia' as const, brinco: `${alvo[alvo.length - 1].brinco} … ${alvo[0].brinco}`,
+              categoria: 'boi_terminacao' as const, quantidade: qtd, origem: lote.nome, destino: `${nome.trim()} (${baia.nome})`,
+              obs: `Apartação por peso — ${qtd} mais pesados (≥ ${Math.round(alvo[alvo.length - 1].pesoAtual)} kg)`, responsavelId: s.usuarioAtualId,
+            },
+          ],
+          conferencias: comConferencia(s, 'Apartação por peso', `${qtd} cab de ${lote.nome} → ${baia.nome}`),
+        })
+        return { ok: true }
+      },
+
+      entradaLoteConfinamento: (p) => {
+        const s = get()
+        const baia = s.baias.find((b) => b.id === p.baiaId)
+        if (!baia) return { ok: false, erro: 'Escolha a baia.' }
+        if (s.lotesConfinamento.some((l) => l.status === 'ativo' && l.baiaId === p.baiaId)) return { ok: false, erro: `${baia.nome} está ocupada.` }
+        if (!p.nome.trim()) return { ok: false, erro: 'Dê um nome ao lote.' }
+        if (!Number.isInteger(p.qtd) || p.qtd <= 0) return { ok: false, erro: 'Informe a quantidade em cabeças.' }
+        if (p.qtd > baia.capacidade) return { ok: false, erro: `${baia.nome} comporta ${baia.capacidade} cabeças.` }
+        if (!(p.pesoEntrada > 150 && p.pesoEntrada < 700)) return { ok: false, erro: 'Peso de entrada fora do normal (150 a 700 kg).' }
+        const dieta = s.dietas.find((d) => d.id === p.dietaId)
+        if (!dieta) return { ok: false, erro: 'Escolha a dieta de entrada.' }
+        if (p.origem === 'compra' && !(p.precoArrobaMagro > 0)) return { ok: false, erro: 'Informe o preço da arroba do boi magro.' }
+        if (p.vencimento && p.vencimento <= hojeISO()) return { ok: false, erro: 'Para compra a prazo, o vencimento precisa ser uma data futura.' }
+        const hoje = hojeISO()
+        const custoCabEntrada =
+          p.origem === 'compra'
+            ? Math.round((p.pesoEntrada / KG_POR_ARROBA) * p.precoArrobaMagro * (1 + p.agioPct / 100))
+            : Math.round(p.custoRecriaCab)
+        // prefixo de brinco único (CF10, CF11…)
+        let n = s.lotesConfinamento.length + 1
+        let prefixo = `CF${n}`
+        const brincos = new Set(s.animais.map((a) => a.brinco))
+        while (brincos.has(`${prefixo}-001`)) prefixo = `CF${++n}`
+        const loteId = nid('CF')
+        const novos: Animal[] = Array.from({ length: p.qtd }, (_, i) => {
+          const peso = Math.round((p.pesoEntrada + ((i % 17) - 8) * 2.4) * 10) / 10
+          return {
+            id: nid('A'), brinco: `${prefixo}-${String(i + 1).padStart(3, '0')}`, sexo: 'M' as const, categoria: 'boi_terminacao' as const, raca: 'Nelore' as const,
+            nascimento: addDays(hoje, -(720 + (i % 30) * 6)), loteId, pesoAtual: peso, pesagens: [{ data: hoje, peso }],
+            sanitario: [{ data: hoje, tipo: 'Vacinação', produto: 'Vacina clostridiose' }, { data: hoje, tipo: 'Vermifugação', produto: 'Ivermectina 1%' }],
+            status: 'ativo' as const,
+          }
+        })
+        const pastoId = s.pastos.find((x) => x.tipo === 'confinamento')?.id ?? s.pastos[0]?.id ?? ''
+        const valor = p.qtd * custoCabEntrada
+        set({
+          lotes: [...s.lotes, { id: loteId, nome: p.nome.trim(), pastoId, finalidade: 'terminacao' as const }],
+          lotesConfinamento: [
+            ...s.lotesConfinamento,
+            {
+              id: loteId, nome: p.nome.trim(), baiaId: p.baiaId, dataEntrada: hoje, qtdEntrada: p.qtd, pesoEntrada: p.pesoEntrada,
+              origem: p.origem, fornecedor: p.fornecedor?.trim() || undefined, custoCabEntrada, agioPct: p.origem === 'compra' ? p.agioPct : 0,
+              dietaId: dieta.id, fase: dieta.fase, historicoDieta: [{ data: hoje, dietaId: dieta.id, fase: dieta.fase }],
+              gmdMeta: p.gmdMeta, pesoAbateAlvo: p.pesoAbateAlvo, rendimentoEstimado: p.rendimentoEstimado, diasCochoPlano: p.diasCochoPlano,
+              pesagens: [{ data: hoje, peso: p.pesoEntrada }], status: 'ativo' as const,
+            },
+          ],
+          animais: [...s.animais, ...novos],
+          movimentacoes: [
+            ...s.movimentacoes,
+            {
+              id: nid('MV'), data: hoje, tipo: p.origem === 'compra' ? ('compra' as const) : ('transferencia' as const),
+              brinco: `${prefixo}-001…${prefixo}-${String(p.qtd).padStart(3, '0')}`, categoria: 'boi_terminacao' as const, quantidade: p.qtd,
+              origem: p.origem === 'compra' ? undefined : 'Recria própria', destino: `${p.nome.trim()} (${baia.nome})`,
+              obs: p.origem === 'compra' ? `${p.fornecedor?.trim() || 'Compra'} — ${p.pesoEntrada} kg médio, ágio ${p.agioPct}%` : `Entrada no cocho — ${p.pesoEntrada} kg médio`,
+              responsavelId: s.usuarioAtualId,
+            },
+          ],
+          lancamentos:
+            p.origem === 'compra'
+              ? [
+                  ...s.lancamentos,
+                  {
+                    id: nid('LC'), tipo: 'despesa' as const, categoria: 'Compra de animais', descricao: `${p.qtd} bois magros — ${p.nome.trim()}`,
+                    valor, vencimento: p.vencimento ?? hoje, pagamento: p.vencimento ? undefined : hoje, origem: 'compra_animal' as const,
+                    refId: loteId, centroCusto: 'Terminacao' as const, responsavelId: s.usuarioAtualId,
+                  },
+                ]
+              : s.lancamentos,
+          conferencias: comConferencia(s, 'Entrada de lote', `${p.nome.trim()} — ${p.qtd} cab na ${baia.nome}`),
+          fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas + p.qtd },
+        })
+        return { ok: true }
+      },
+
+      registrarAbate: ({ loteId, qtd, data, frigorifico, pesoCarcacaTotal, precoArroba, vencimento }) => {
+        const s = get()
+        const lote = s.lotesConfinamento.find((l) => l.id === loteId && l.status === 'ativo')
+        if (!lote) return { ok: false, erro: 'Lote não encontrado.' }
+        const an = s.animais.filter((a) => a.status === 'ativo' && a.loteId === loteId).sort((a, b) => b.pesoAtual - a.pesoAtual)
+        if (!Number.isInteger(qtd) || qtd <= 0 || qtd > an.length) return { ok: false, erro: `Informe entre 1 e ${an.length} cabeças.` }
+        if (!(pesoCarcacaTotal > 0)) return { ok: false, erro: 'Informe o peso total de carcaça do romaneio.' }
+        if (!(precoArroba > 0)) return { ok: false, erro: 'Informe o preço da arroba.' }
+        if (!data || data > hojeISO()) return { ok: false, erro: 'A data do abate não pode ser no futuro.' }
+        if (vencimento && vencimento <= data) return { ok: false, erro: 'O vencimento precisa ser depois do abate.' }
+        const alvo = an.slice(0, qtd)
+        const ids = new Set(alvo.map((a) => a.id))
+        const pesoVivoMedio = alvo.reduce((t, a) => t + a.pesoAtual, 0) / qtd
+        const rendimentoReal = (pesoCarcacaTotal / (pesoVivoMedio * qtd)) * 100
+        if (rendimentoReal < 40 || rendimentoReal > 65) {
+          return { ok: false, erro: `Rendimento de ${rendimentoReal.toFixed(1).replace('.', ',')}% fora do normal (40 a 65%) — confira o romaneio.` }
+        }
+        const arrobas = pesoCarcacaTotal / CONFINAMENTO.kgArrobaCarcaca
+        const receita = Math.round(arrobas * precoArroba * 100) / 100
+        const r = resumoLote(s, lote)
+        const fracao = qtd / Math.max(1, r.cab)
+        const custoTotal = Math.round(r.custoTotal * fracao * 100) / 100
+        const ganhoCarcaca = qtd * (pesoVivoMedio - lote.pesoEntrada) * (rendimentoReal / 100)
+        const arrobasProduzidas = ganhoCarcaca / CONFINAMENTO.kgArrobaCarcaca
+        const abate: Abate = {
+          id: nid('AB'), data, loteId, loteNome: lote.nome, frigorifico: frigorifico.trim() || 'Frigorífico', qtd,
+          pesoVivoMedio: Math.round(pesoVivoMedio * 10) / 10, pesoCarcacaTotal, rendimentoReal: Math.round(rendimentoReal * 10) / 10,
+          rendimentoEstimado: lote.rendimentoEstimado, precoArroba, receita, diasCocho: r.diasCocho, gmd: Math.round(r.gmd * 100) / 100,
+          conversaoAlimentar: Math.round(r.conversaoAlimentar * 10) / 10, custoTotal,
+          custoArrobaProduzida: arrobasProduzidas > 0 ? Math.round((((r.custoAlimentacao + r.custoFixo + r.custoSanitario) * fracao) / arrobasProduzidas) * 100) / 100 : 0,
+          arrobasProduzidas: Math.round(arrobasProduzidas * 10) / 10, margem: Math.round((receita - custoTotal) * 100) / 100,
+        }
+        const encerra = qtd === an.length
+        set({
+          abates: [...s.abates, abate],
+          animais: s.animais.map((a) => (ids.has(a.id) ? { ...a, status: 'vendido' as const } : a)),
+          lotesConfinamento: s.lotesConfinamento.map((l) =>
+            l.id === loteId && encerra
+              ? { ...l, status: 'abatido' as const, pesagens: [...l.pesagens.filter((p) => p.data !== data), { data, peso: abate.pesoVivoMedio }].sort((x, y) => x.data.localeCompare(y.data)) }
+              : l,
+          ),
+          movimentacoes: [
+            ...s.movimentacoes,
+            {
+              id: nid('MV'), data, tipo: 'venda' as const, brinco: qtd === 1 ? alvo[0].brinco : `${alvo[alvo.length - 1].brinco} … ${alvo[0].brinco}`,
+              categoria: 'boi_terminacao' as const, quantidade: qtd, origem: lote.nome,
+              obs: `Abate — ${abate.frigorifico}, ${Math.round(pesoVivoMedio)} kg vivo, rendimento ${abate.rendimentoReal.toFixed(1).replace('.', ',')}%`, responsavelId: s.usuarioAtualId,
+            },
+          ],
+          lancamentos: [
+            ...s.lancamentos,
+            {
+              id: nid('LC'), tipo: 'receita' as const, categoria: 'Venda de animais', descricao: `Abate ${lote.nome} — ${abate.frigorifico} (${qtd} cab, ${Math.round(arrobas)} @)`,
+              valor: receita, vencimento: vencimento ?? data, pagamento: vencimento ? undefined : data, origem: 'venda_animal' as const,
+              refId: abate.id, centroCusto: 'Terminacao' as const, responsavelId: s.usuarioAtualId,
+            },
+          ],
+          conferencias: comConferencia(s, 'Abate', `${lote.nome} — ${qtd} cab, ${Math.round(arrobas)} @ no ${abate.frigorifico}`),
+          fazenda: { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - qtd },
+        })
+        return { ok: true, abate }
+      },
+
+      entradaEnfermaria: ({ animalId, diagnostico, tratamento, itemEstoqueId, custo, diasTratamento, carenciaDias }) => {
+        const s = get()
+        const animal = s.animais.find((a) => a.id === animalId && a.status === 'ativo')
+        if (!animal) return { ok: false, erro: 'Animal não encontrado no rebanho ativo.' }
+        if (s.enfermaria.some((e) => e.animalId === animalId && !e.saida)) return { ok: false, erro: `${animal.brinco} já está na enfermaria.` }
+        if (!diagnostico.trim() || !tratamento.trim()) return { ok: false, erro: 'Informe diagnóstico e tratamento.' }
+        if (!(diasTratamento >= 0) || !(carenciaDias >= 0) || !(custo >= 0)) return { ok: false, erro: 'Dias e custo não podem ser negativos.' }
+        const item = itemEstoqueId ? s.estoque.find((i) => i.id === itemEstoqueId) : undefined
+        if (itemEstoqueId && !item) return { ok: false, erro: 'Medicamento não encontrado no estoque.' }
+        if (item && item.saldo < 1) return { ok: false, erro: `${item.nome} sem saldo no estoque.` }
+        const hoje = hojeISO()
+        set({
+          enfermaria: [
+            ...s.enfermaria,
+            {
+              id: nid('EN'), animalId, brinco: animal.brinco, loteId: animal.loteId, entrada: hoje, diagnostico: diagnostico.trim(), tratamento: tratamento.trim(),
+              itemEstoqueId: item?.id, custo, carenciaDias, fimTratamento: addDays(hoje, diasTratamento), responsavelId: s.usuarioAtualId,
+            },
+          ],
+          animais: s.animais.map((a) =>
+            a.id === animalId ? { ...a, sanitario: [...a.sanitario, { data: hoje, tipo: 'Tratamento', produto: `${diagnostico.trim()} — ${tratamento.trim()}` }] } : a,
+          ),
+          movEstoque: item
+            ? [...s.movEstoque, { id: nid('ME'), data: hoje, itemId: item.id, tipo: 'saida' as const, quantidade: 1, loteDestino: 'Enfermaria', obs: `${animal.brinco} — ${diagnostico.trim()}`, responsavelId: s.usuarioAtualId }]
+            : s.movEstoque,
+          estoque: item ? s.estoque.map((i) => (i.id === item.id ? { ...i, saldo: i.saldo - 1 } : i)) : s.estoque,
+          conferencias: comConferencia(s, 'Enfermaria', `${animal.brinco} entrou na enfermaria — ${diagnostico.trim()}`),
+        })
+        return { ok: true }
+      },
+
+      saidaEnfermaria: (id, destino) => {
+        const s = get()
+        const e = s.enfermaria.find((x) => x.id === id && !x.saida)
+        if (!e) return { ok: false, erro: 'Registro da enfermaria não encontrado.' }
+        const hoje = hojeISO()
+        const animal = s.animais.find((a) => a.id === e.animalId)
+        const lote = s.lotes.find((l) => l.id === e.loteId)
+        set({
+          enfermaria: s.enfermaria.map((x) => (x.id === id ? { ...x, saida: hoje, destino } : x)),
+          animais:
+            destino === 'obito' && animal
+              ? s.animais.map((a) => (a.id === animal.id ? { ...a, status: 'morto' as const } : a))
+              : s.animais,
+          movimentacoes:
+            destino === 'obito' && animal
+              ? [
+                  ...s.movimentacoes,
+                  { id: nid('MV'), data: hoje, tipo: 'morte' as const, brinco: animal.brinco, categoria: animal.categoria, quantidade: 1, origem: lote?.nome ?? e.loteId, obs: `Óbito na enfermaria — ${e.diagnostico}`, responsavelId: s.usuarioAtualId },
+                ]
+              : s.movimentacoes,
+          conferencias: comConferencia(s, 'Enfermaria', destino === 'alta' ? `${e.brinco} teve alta e voltou ao lote` : `${e.brinco} — óbito (${e.diagnostico})`),
+          fazenda: destino === 'obito' && animal ? { ...s.fazenda, totalCabecas: s.fazenda.totalCabecas - 1 } : s.fazenda,
+        })
+        return { ok: true }
       },
 
       resolverOcorrencia: (rondaId, index) =>

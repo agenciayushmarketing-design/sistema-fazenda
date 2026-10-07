@@ -13,6 +13,7 @@ import {
 import { CATEGORIA_LABEL, type Categoria } from '@/data/types'
 import { PERFIL_INFO } from '@/data/seed'
 import { fmtBRL, fmtDate, fmtKg1, fmtMesAno, fmtNum, fmtNum1, fmtNum2, fmtPct, hojeISO } from '@/lib/format'
+import { resumoConfinamento } from '@/lib/confinamento'
 import type { Store } from '@/store/useStore'
 
 function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
@@ -243,11 +244,13 @@ function RelatorioDia({ state }: { state: Store }) {
   const confPendentes = state.conferencias.filter((c) => c.status === 'pendente')
   const salDia = doDia(state.fornecimentosSal)
   const cochoDia = doDia(state.leiturasCocho)
+  const abatesDia = doDia(state.abates)
+  const enfermariaDia = state.enfermaria.filter((e) => e.entrada === hoje || e.saida === hoje)
   const loteNome = (id: string) => state.lotes.find((l) => l.id === id)?.nome ?? id
 
   const nada =
     partos.length + desmames.length + manejos.length + rondas.length + movs.length +
-    estoqueDia.length + financeiroDia.length + pesagensLote.length + salDia.length + cochoDia.length === 0 &&
+    estoqueDia.length + financeiroDia.length + pesagensLote.length + salDia.length + cochoDia.length + abatesDia.length + enfermariaDia.length === 0 &&
     !leiteHoje
 
   return (
@@ -276,6 +279,22 @@ function RelatorioDia({ state }: { state: Store }) {
               fmtNum1(l.kgCalculado / l.cabecas),
               nomeMembro(state, l.responsavelId),
             ])}
+          />
+        </Secao>
+      )}
+      {abatesDia.length > 0 && (
+        <Secao titulo="Abates do dia">
+          <TabelaRelatorio
+            cab={['Lote', 'Frigorífico', 'Cab', 'Rendimento', '@', 'Receita', 'Margem']}
+            linhas={abatesDia.map((a) => [a.loteNome, a.frigorifico, a.qtd, fmtPct(a.rendimentoReal), fmtNum1(a.pesoCarcacaTotal / 15), fmtBRL(a.receita), fmtBRL(a.margem)])}
+          />
+        </Secao>
+      )}
+      {enfermariaDia.length > 0 && (
+        <Secao titulo="Enfermaria do dia">
+          <TabelaRelatorio
+            cab={['Brinco', 'Lote', 'Diagnóstico', 'Movimento']}
+            linhas={enfermariaDia.map((e) => [e.brinco, loteNome(e.loteId), e.diagnostico, e.saida === hoje ? (e.destino === 'alta' ? 'alta' : 'óbito') : 'entrada'])}
           />
         </Secao>
       )}
@@ -376,8 +395,44 @@ function RelatorioDia({ state }: { state: Store }) {
   )
 }
 
+function RelatorioConfinamento({ state }: { state: Store }) {
+  const r = resumoConfinamento(state)
+  const abates = [...state.abates].sort((a, b) => b.data.localeCompare(a.data))
+  return (
+    <>
+      <Secao titulo="Painel geral">
+        <LinhaDado rotulo="Cabeças no cocho" valor={`${fmtNum(r.cab)} em ${r.baiasOcupadas}/${r.baiasTotal} baias (${fmtPct(r.ocupacaoPct)})`} />
+        <LinhaDado rotulo="GMD médio" valor={`${fmtNum2(r.gmd)} kg/dia`} />
+        <LinhaDado rotulo="Conversão alimentar" valor={`${fmtNum1(r.conversaoAlimentar)} : 1 (${fmtNum1(r.msCabDia)} kg MS/cab/dia)`} />
+        <LinhaDado rotulo="Custo diário por cabeça" valor={fmtBRL(r.custoDiarioCab)} />
+        <LinhaDado rotulo="Custo por @ produzida × cotação" valor={`${fmtBRL(r.custoArrobaProduzida)} × ${fmtBRL(r.precoArroba)}`} />
+        <LinhaDado rotulo="Margem projetada no abate" valor={fmtBRL(r.margemProjetada)} />
+        <LinhaDado rotulo="Enfermaria / mortalidade" valor={`${r.naEnfermaria} animais · ${fmtPct(r.mortalidadePct)}`} />
+      </Secao>
+      <Secao titulo="Lotes no cocho (ordem de abate)">
+        <TabelaRelatorio
+          cab={['Lote', 'Baia', 'Cab', 'Dias', 'Peso', 'GMD', 'CA', 'Custo/@', 'Abate previsto', 'Margem']}
+          linhas={r.lotes.map((l) => [
+            l.lote.nome, l.baia?.nome ?? '—', l.cab, l.diasCocho, `${fmtNum(l.pesoAtual)} kg`, fmtNum2(l.gmd), fmtNum1(l.conversaoAlimentar),
+            fmtBRL(l.custoArrobaProduzida), fmtDate(l.dataAbatePrevista), fmtBRL(l.margemProjetada),
+          ])}
+        />
+      </Secao>
+      {abates.length > 0 && (
+        <Secao titulo="Abates realizados">
+          <TabelaRelatorio
+            cab={['Data', 'Lote', 'Cab', 'Rend. real', '@', 'R$/@', 'Receita', 'Margem']}
+            linhas={abates.map((a) => [fmtDate(a.data), a.loteNome, a.qtd, fmtPct(a.rendimentoReal), fmtNum1(a.pesoCarcacaTotal / 15), fmtBRL(a.precoArroba), fmtBRL(a.receita), fmtBRL(a.margem)])}
+          />
+        </Secao>
+      )}
+    </>
+  )
+}
+
 const TITULOS = {
   dia: 'Fechamento do Dia',
+  confinamento: 'Painel do Confinamento',
   safra: 'Relatório da Safra',
   inventario: 'Inventário do Rebanho',
   financeiro: 'Resumo Financeiro',
@@ -391,6 +446,7 @@ export default function Relatorios() {
     relParam && relParam in TITULOS ? (relParam as keyof typeof TITULOS) : 'safra',
   )
   const info = PERFIL_INFO[state.perfil]
+  const tipos = (Object.keys(TITULOS) as (keyof typeof TITULOS)[]).filter((t) => t !== 'confinamento' || state.lotesConfinamento.length > 0)
 
   return (
     <div>
@@ -405,7 +461,7 @@ export default function Relatorios() {
           }
         />
         <div className="mb-3 inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-md border bg-secondary p-0.5">
-          {(Object.keys(TITULOS) as (keyof typeof TITULOS)[]).map((t) => (
+          {tipos.map((t) => (
             <button
               key={t}
               onClick={() => setTipo(t)}
@@ -437,6 +493,7 @@ export default function Relatorios() {
         </div>
 
         {tipo === 'dia' && <RelatorioDia state={state} />}
+        {tipo === 'confinamento' && <RelatorioConfinamento state={state} />}
         {tipo === 'safra' && <RelatorioSafra state={state} />}
         {tipo === 'inventario' && <RelatorioInventario state={state} />}
         {tipo === 'financeiro' && <RelatorioFinanceiro state={state} />}

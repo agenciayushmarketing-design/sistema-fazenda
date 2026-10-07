@@ -1,6 +1,6 @@
 // Tipos do domínio — Fazenda Santa Helena (demo)
 
-export type PerfilDemo = 'ciclo_completo' | 'cria_150' | 'corte_leite'
+export type PerfilDemo = 'ciclo_completo' | 'cria_150' | 'corte_leite' | 'confinamento'
 
 export type Categoria =
   | 'bezerro'
@@ -379,6 +379,117 @@ export interface LeituraCocho {
   kgCalculado: number
   itemEstoqueId: string
   responsavelId?: string
+  /** módulo Confinamento: baia lida, sobra pesada e dieta do trato (a baixa é por ingrediente) */
+  baiaId?: string
+  sobraKg?: number
+  dietaId?: string
+}
+
+// ---- Confinamento ----
+export type FaseConfinamento = 'adaptacao' | 'crescimento' | 'terminacao'
+
+export const FASE_LABEL: Record<FaseConfinamento, string> = {
+  adaptacao: 'Adaptação',
+  crescimento: 'Crescimento',
+  terminacao: 'Terminação',
+}
+
+export interface Baia {
+  id: string
+  nome: string
+  capacidade: number
+}
+
+export interface IngredienteDieta {
+  itemEstoqueId: string
+  /** % da mistura como fornecida (soma 100) */
+  pct: number
+}
+
+/** Dieta por fase: a batida de ração baixa cada ingrediente na proporção */
+export interface Dieta {
+  id: string
+  nome: string
+  fase: FaseConfinamento
+  ingredientes: IngredienteDieta[]
+  /** matéria seca da mistura (%) */
+  msPct: number
+  /** consumo esperado de matéria seca, em % do peso vivo por dia */
+  consumoMSPctPV: number
+  /** dias previstos nessa fase (terminação: até o abate) */
+  diasPrevistos: number
+}
+
+export interface TrocaDieta {
+  data: string
+  dietaId: string
+  fase: FaseConfinamento
+}
+
+/** Lote de confinamento: ocupa uma baia; os animais ficam em `animais` com loteId = id */
+export interface LoteConfinamento {
+  id: string // = id do Lote
+  nome: string
+  baiaId: string
+  dataEntrada: string
+  qtdEntrada: number
+  pesoEntrada: number // kg médio
+  origem: 'compra' | 'recria_propria'
+  fornecedor?: string
+  /** custo de aquisição por cabeça (compra: com ágio; própria: custo da recria) */
+  custoCabEntrada: number
+  agioPct: number
+  dietaId: string
+  fase: FaseConfinamento
+  historicoDieta: TrocaDieta[]
+  gmdMeta: number
+  pesoAbateAlvo: number
+  rendimentoEstimado: number // % de carcaça
+  diasCochoPlano: number
+  pesagens: Pesagem[] // peso médio do lote
+  status: 'ativo' | 'abatido'
+}
+
+export interface Abate {
+  id: string
+  data: string
+  loteId: string
+  loteNome: string
+  frigorifico: string
+  qtd: number
+  pesoVivoMedio: number
+  /** peso total de carcaça do romaneio (kg) */
+  pesoCarcacaTotal: number
+  rendimentoReal: number // %
+  rendimentoEstimado: number // %
+  precoArroba: number
+  receita: number
+  /** fotografia do lote no abate (dias de cocho, custo, margem) */
+  diasCocho: number
+  gmd: number
+  conversaoAlimentar: number
+  custoTotal: number
+  custoArrobaProduzida: number
+  arrobasProduzidas: number
+  margem: number
+}
+
+export interface Enfermaria {
+  id: string
+  animalId: string
+  brinco: string
+  loteId: string
+  entrada: string
+  diagnostico: string
+  tratamento: string
+  itemEstoqueId?: string
+  custo: number
+  carenciaDias: number
+  /** fim do tratamento (início da carência); antes disso o animal ainda está em tratamento */
+  fimTratamento: string
+  saida?: string
+  destino?: 'alta' | 'obito'
+  responsavelId?: string
 }
 
 // ---- Equipe e conferência (campo lança → escritório dá o visto) ----
@@ -408,6 +519,10 @@ export interface ConfigFazenda {
   toleranciaIPMeses: number
   /** vazia há mais dias que isso vira aviso de venda */
   diasVaziaDescarte: number
+  /** cotação da arroba do boi gordo usada nas projeções do confinamento (R$/@) */
+  precoArroba?: number
+  /** custo fixo do confinamento por cabeça/dia (mão de obra, energia, depreciação) */
+  custoFixoCabDia?: number
 }
 
 // ---- Dataset completo ----
@@ -448,4 +563,10 @@ export interface SeedData {
   rondas: RondaSanitaria[]
   fornecimentosSal: FornecimentoSal[]
   leiturasCocho: LeituraCocho[]
+  // confinamento (vazios nas fazendas sem o módulo)
+  baias: Baia[]
+  dietas: Dieta[]
+  lotesConfinamento: LoteConfinamento[]
+  abates: Abate[]
+  enfermaria: Enfermaria[]
 }

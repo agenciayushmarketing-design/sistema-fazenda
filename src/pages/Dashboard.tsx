@@ -17,6 +17,9 @@ import {
 import { fmtBRL, fmtGMD, fmtMesAno, fmtNum, fmtNum1, fmtNum2, fmtPct, fmtDateShort } from '@/lib/format'
 import { SERIES, GRID, axisProps, tooltipStyle } from '@/lib/chart'
 import { diffDays, PERFIL_INFO } from '@/data/seed'
+import { resumoConfinamento } from '@/lib/confinamento'
+import { FASE_LABEL } from '@/data/types'
+import { Badge } from '@/components/ui/badge'
 import { hojeISO } from '@/lib/format'
 import type { PerfilDemo } from '@/data/types'
 
@@ -107,6 +110,9 @@ export default function Dashboard() {
   const evolucao = evolucaoRebanho(state)
   const leite = metricasLeite(state)
   const temRecria = state.lotesRecria.length > 0
+  // fazenda só de confinamento: os indicadores do topo são os do cocho
+  const soConfinamento = state.lotesConfinamento.length > 0 && !ativos(state.animais).some((a) => a.categoria === 'vaca')
+  const conf = soConfinamento ? resumoConfinamento(state) : null
   const apartar90 = previsaoApartacao(state).filter((p) => p.diasRestantes <= 90).length
 
   const distribuicao = (Object.entries(inv) as [Categoria, number][])
@@ -140,6 +146,22 @@ export default function Dashboard() {
 
       <BannerPerfil perfil={state.perfil} />
 
+      {conf ? (
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
+          <StatCard label="Cabeças no cocho" value={fmtNum(conf.cab)} detail={`${conf.baiasOcupadas}/${conf.baiasTotal} baias · ${fmtPct(conf.ocupacaoPct)}`}
+            hint="Animais vivos nas baias hoje e quantas baias estão ocupadas." />
+          <StatCard label="GMD médio" value={fmtGMD(conf.gmd)} detail="ponderado por cabeça" tone={conf.gmd >= 1.3 ? 'good' : 'warning'}
+            hint="Ganho médio diário dos lotes desde a entrada no cocho." />
+          <StatCard label="Conversão alimentar" value={`${fmtNum1(conf.conversaoAlimentar)} : 1`} detail={`${fmtNum1(conf.msCabDia)} kg MS/cab/dia`} tone={conf.conversaoAlimentar > 8 ? 'warning' : 'good'}
+            hint="Kg de matéria seca para cada kg de peso ganho. Entre 6 e 8 é o esperado." />
+          <StatCard label="Custo / @ produzida" value={fmtBRL(conf.custoArrobaProduzida)} detail={`cotação ${fmtBRL(conf.precoArroba)}`} tone={conf.custoArrobaProduzida > conf.precoArroba ? 'critical' : 'good'}
+            hint="Custo do cocho dividido pelas arrobas de carcaça produzidas — comparar com a cotação." />
+          <StatCard label="Margem projetada" value={fmtBRL(conf.margemProjetada)} detail={`receita ${fmtBRL(conf.receitaProjetada)}`} tone={conf.margemProjetada >= 0 ? 'good' : 'critical'}
+            hint="Receita no abate menos o custo total projetado de todos os lotes." />
+          <StatCard label="Abates em 30 dias" value={fmtNum(conf.abates30)} detail={`${fmtNum(conf.cabAbates30)} cabeças`} tone={conf.abates30 > 0 ? 'warning' : undefined} />
+          <StatCard label="Enfermaria" value={fmtNum(conf.naEnfermaria)} detail={`${fmtPct(conf.mortalidadePct)} mortalidade`} tone={conf.naEnfermaria > conf.cab / 100 ? 'critical' : 'good'} />
+        </div>
+      ) : (
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
         <StatCard label="Total de cabeças" value={fmtNum(total)} detail="animais ativos"
           hint="Todos os animais vivos na fazenda hoje, somando as categorias do Rebanho." />
@@ -171,8 +193,9 @@ export default function Dashboard() {
             hint="Média diária de leite no tanque nos últimos 7 dias." />
         )}
       </div>
+      )}
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-3">
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
         <ChartCard title="Evolução do rebanho por categoria (12 meses)" className="xl:col-span-2">
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={evolucao} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
@@ -207,8 +230,23 @@ export default function Dashboard() {
         </ChartCard>
       </div>
 
-      <div className="mt-3 grid gap-3 xl:grid-cols-3">
-        {temRecria ? (
+      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
+        {conf ? (
+          <ChartCard title="Lotes no cocho — próximos abates" className="xl:col-span-2">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              {conf.lotes.slice(0, 6).map((r) => (
+                <Link key={r.lote.id} to={`/confinamento?tab=lotes&lote=${r.lote.id}`} className="rounded-md border px-2.5 py-2 transition-colors hover:bg-secondary">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="truncate text-[12px] font-semibold">{r.lote.nome}</span>
+                    <Badge variant={r.diasRestantes <= 7 ? 'critical' : r.diasRestantes <= 30 ? 'warning' : 'default'}>{r.diasRestantes} d</Badge>
+                  </div>
+                  <div className="tnum text-[11px] text-muted-foreground">{r.baia?.nome} · {r.cab} cab · {fmtNum(r.pesoAtual)} kg · {FASE_LABEL[r.lote.fase]} · GMD {fmtNum2(r.gmd)} · margem {fmtBRL(r.margemCab)}/cab</div>
+                </Link>
+              ))}
+            </div>
+            <Link to="/confinamento" className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-blue-800 hover:underline">Abrir o painel do confinamento <ArrowRight className="h-3 w-3" /></Link>
+          </ChartCard>
+        ) : temRecria ? (
           <ChartCard title="Curva de peso — lotes de recria (kg médio × dias no lote)" className="xl:col-span-2">
             <ResponsiveContainer width="100%" height={230}>
               <LineChart data={curvaData} margin={{ top: 4, right: 8, left: -8, bottom: 0 }}>

@@ -36,6 +36,7 @@ const importadores = {
   FichaAnimal: () => import('@/pages/FichaAnimal'),
   Cria: () => import('@/pages/Cria'),
   Recria: () => import('@/pages/Recria'),
+  Confinamento: () => import('@/pages/Confinamento'),
   Reproducao: () => import('@/pages/Reproducao'),
   Sanitario: () => import('@/pages/Sanitario'),
   Nutricao: () => import('@/pages/Nutricao'),
@@ -54,6 +55,7 @@ const Rebanho = pagina(importadores.Rebanho)
 const FichaAnimal = pagina(importadores.FichaAnimal)
 const Cria = pagina(importadores.Cria)
 const Recria = pagina(importadores.Recria)
+const Confinamento = pagina(importadores.Confinamento)
 const Reproducao = pagina(importadores.Reproducao)
 const Sanitario = pagina(importadores.Sanitario)
 const Nutricao = pagina(importadores.Nutricao)
@@ -76,6 +78,7 @@ const router = createHashRouter([
       { path: '/rebanho/:id', element: <FichaAnimal /> },
       { path: '/cria', element: <Cria /> },
       { path: '/recria', element: <Recria /> },
+      { path: '/confinamento', element: <Confinamento /> },
       { path: '/reproducao', element: <Reproducao /> },
       { path: '/leite', element: <Leite /> },
       { path: '/sanitario', element: <Sanitario /> },

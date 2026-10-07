@@ -5,6 +5,7 @@ import {
   TOLERANCIA_SAL, UA_KG,
 } from '@/data/seed'
 import { hojeISO } from '@/lib/format'
+import { alertasConfinamento } from '@/lib/confinamento'
 
 export { UA_KG, KG_POR_ARROBA, APARTACAO_DIAS }
 
@@ -613,7 +614,7 @@ export function metricasLeite(data: Pick<SeedData, 'producaoLeite' | 'leite'>) {
 export interface Alerta {
   tipo:
     | 'vacina' | 'lotacao' | 'estoque' | 'dg' | 'os' | 'maquina' | 'parto' | 'sanitario'
-    | 'descarte' | 'conferencia' | 'sal' | 'gmd'
+    | 'descarte' | 'conferencia' | 'sal' | 'gmd' | 'cocho' | 'abate' | 'enfermaria'
   severidade: 'warning' | 'critical'
   titulo: string
   detalhe: string
@@ -765,6 +766,7 @@ export function alertas(data: SeedData): Alerta[] {
       link: '/maquinas',
     })
   }
+  out.push(...alertasConfinamento(data))
   return out.sort((a, b) => (a.severidade === 'critical' ? -1 : 1) - (b.severidade === 'critical' ? -1 : 1))
 }
 

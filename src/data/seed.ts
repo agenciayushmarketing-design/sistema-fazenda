@@ -6,24 +6,31 @@
 //   - ciclo_completo : Fazenda Santa Helena, 800 ha, 1.200 cab
 //   - cria_120       : Sítio Boa Esperança, cria pura, 120 matrizes
 //   - corte_leite    : Fazenda Dois Córregos, corte + leite + máquinas
+//   - confinamento   : Confinamento Boa Vista, 12 baias, ~1.000 cab no cocho
 // Nenhum número de negócio deve viver solto nos componentes.
 // Datas relativas ao dia da geração — a demo nunca envelhece.
 // =====================================================================
 
 import type {
+  Abate,
   Animal,
+  Baia,
   Categoria,
   CentroCusto,
   Conferencia,
   ConfigFazenda,
   Desmame,
   DiagnosticoGestacao,
+  Dieta,
+  Enfermaria,
   EstacaoMonta,
+  FaseConfinamento,
   FornecimentoSal,
   ItemEstoque,
   Lancamento,
   LeituraCocho,
   Lote,
+  LoteConfinamento,
   LoteRecria,
   ManejoSanitario,
   Maquina,
@@ -75,6 +82,22 @@ export const MERCADO = {
   mortalidadePct: 1.5,
 }
 
+/** Confinamento: referências de mercado e de manejo (editáveis nas telas) */
+export const CONFINAMENTO = {
+  /** 1 @ de carcaça = 15 kg */
+  kgArrobaCarcaca: 15,
+  /** acima disso (fração do rebanho confinado) a enfermaria vira alerta */
+  enfermariaMaxPct: 1,
+  /** insumo com menos dias de estoque que isso vira alerta */
+  diasEstoqueMinimo: 7,
+  /** queda do consumo dos últimos 3 dias contra a média dos 7 anteriores que vira alerta */
+  quedaConsumoPct: 8,
+  /** GMD da fase multiplica o GMD médio do lote (adaptação come menos) */
+  fatorGmdFase: { adaptacao: 0.7, crescimento: 1.08, terminacao: 1.1 } as const,
+  /** custo fixo padrão por cabeça/dia (mão de obra, energia, depreciação) */
+  custoFixoCabDia: 1.5,
+}
+
 /** Escala de leitura de cocho: nota da sobra → ajuste do trato de hoje */
 export const NOTAS_COCHO = [
   { nota: 0, rotulo: 'Lambido', descricao: 'Cocho vazio e lambido — faltou comida', ajuste: 0.1 },
@@ -113,8 +136,76 @@ interface DesmameRoundParams {
   loteId: string
 }
 
+interface LoteConfParams {
+  id: string
+  nome: string
+  prefixo: string
+  baiaId: string
+  qtd: number
+  entradaDias: number
+  pesoEntrada: number
+  gmd: number
+  gmdMeta: number
+  origem: LoteConfinamento['origem']
+  fornecedor?: string
+  agioPct: number
+  /** custo por cabeça acumulado na recria (lotes próprios) */
+  custoRecriaCab?: number
+  pesoAbateAlvo: number
+  rendimentoEstimado: number
+  diasCochoPlano: number
+  /** consumo real ÷ previsto (1 = na meta) */
+  fatorConsumo?: number
+  /** queda de consumo nos últimos dias — alerta da demo */
+  quedaRecente?: { dias: number; fator: number }
+  /** sobra de ontem (fração do trato) — nota 4 na demo */
+  sobraOntemPct?: number
+}
+
+interface ConfinamentoParams {
+  pastoId: string
+  /** R$/@ do boi magro — base do custo de compra dos lotes */
+  precoArrobaMagro: number
+  baias: Baia[]
+  dietas: Dieta[]
+  lotes: LoteConfParams[]
+  /** compras dos ingredientes: quantidade = consumo gerado × fator (sobra em estoque) */
+  ingredientes: { itemId: string; fornecedor: string; fator: number; valorUnitario: number }[]
+  abatesAnteriores: {
+    loteNome: string
+    baiaId: string
+    dataDias: number
+    diasCocho: number
+    qtd: number
+    pesoEntrada: number
+    pesoVivoMedio: number
+    rendimentoReal: number
+    rendimentoEstimado: number
+    precoArroba: number
+    frigorifico: string
+    custoCabEntrada: number
+    custoAlimentacaoCab: number
+    conversaoAlimentar: number
+  }[]
+  enfermaria: {
+    loteId: string
+    idx: number
+    entradaDias: number
+    diagnostico: string
+    tratamento: string
+    itemEstoqueId?: string
+    custo: number
+    diasTratamento: number
+    carenciaDias: number
+    saidaDias?: number
+    destino?: Enfermaria['destino']
+  }[]
+}
+
 interface PerfilParams {
   nomePerfil: string
+  /** módulo Confinamento completo (baias, dietas, cocho por baia, abate, enfermaria) */
+  confinamentoCompleto?: ConfinamentoParams
   fazenda: { nome: string; areaHa: number }
   config: ConfigFazenda
   equipe: MembroEquipe[]
@@ -927,10 +1018,224 @@ const PERFIL_CORTE_LEITE: PerfilParams = {
   ],
 }
 
+// ---------------------------------------------------------------------
+// PERFIL 4 — Confinamento (12 baias, ~1.000 cabeças no cocho)
+// ---------------------------------------------------------------------
+
+const PERFIL_CONF: PerfilParams = {
+  nomePerfil: 'Confinamento',
+  fazenda: { nome: 'Confinamento Boa Vista', areaHa: 60 },
+  config: { toleranciaIPMeses: 18, diasVaziaDescarte: 45, precoArroba: 325, custoFixoCabDia: 1.5 },
+  equipe: [
+    { id: 'EQ-1', nome: 'Ricardo (gestor)', papel: 'gerente' },
+    { id: 'EQ-2', nome: 'Fernanda Souza', papel: 'escritorio' },
+    { id: 'EQ-3', nome: 'Jonas (tratador)', papel: 'campo' },
+    { id: 'EQ-4', nome: 'Edson (tratador)', papel: 'campo' },
+    { id: 'EQ-5', nome: 'Dr. Paulo (veterinário)', papel: 'campo' },
+  ],
+  usuarioAtualId: 'EQ-1',
+  conferencias: [
+    { dias: 0, hora: '06:40', tipo: 'Leitura de cocho', resumo: 'Baia B03 — nota 4, sobra de 28% pesada', responsavelId: 'EQ-3', status: 'pendente' },
+    { dias: 0, hora: '07:15', tipo: 'Enfermaria', resumo: 'CF4-031 entrou na enfermaria — pneumonia', responsavelId: 'EQ-5', status: 'pendente' },
+    { dias: -1, hora: '16:30', tipo: 'Pesagem de lote', resumo: 'Lote 01 — 528,4 kg médio (brete)', responsavelId: 'EQ-4', status: 'aprovado', conferidoPorId: 'EQ-2' },
+  ],
+  seedRandom: 20261007,
+  inventario: { vaca: 0, vacaLeite: 0, touro: 0, novilha_24: 0, boi_terminacao: 1 },
+  pastos: [
+    { id: 'P1', nome: 'Confinamento Boa Vista', areaHa: 12, capacidadeUA: 1600, tipo: 'confinamento' },
+    { id: 'P2', nome: 'Piquetes de recepção', areaHa: 48, capacidadeUA: 120, tipo: 'pasto' },
+  ],
+  lotes: [],
+  lotesCriaIds: [],
+  loteNovilhasId: '',
+  cria: {
+    matrizesExpostasSafraPassada: 0, partos: 0, mortesPreDesmame: 0, mortesMachos: 0, machosNascidos: 0,
+    nascimentoIniDias: -300, nascimentoFimDias: -200, pesoNascerMedio: 32, matrizesComPartoAnterior: 0,
+    ipMinDias: 360, ipMaxDias: 420,
+  },
+  desmameRounds: [],
+  recria: [],
+  reproducao: {
+    estacaoInicioDias: -90, estacaoFimDias: 30, matrizesExpostas: 0, protocolos: [],
+    prenhasIATF: 0, dg30Dias: -50, prenhasRepasse: 0, dgFinalDias: -8, dgPendentes: 0, tourosRepasse: [],
+  },
+  confinamentoCompleto: {
+    pastoId: 'P1',
+    precoArrobaMagro: 325,
+    baias: Array.from({ length: 12 }, (_, i) => ({
+      id: `B${String(i + 1).padStart(2, '0')}`,
+      nome: `Baia ${String(i + 1).padStart(2, '0')}`,
+      capacidade: 125,
+    })),
+    dietas: [
+      {
+        id: 'D-ADAP', nome: 'Adaptação', fase: 'adaptacao', msPct: 52, consumoMSPctPV: 1.9, diasPrevistos: 14,
+        ingredientes: [
+          { itemEstoqueId: 'SIL-MIL', pct: 62 }, { itemEstoqueId: 'MIL-MOI', pct: 24 }, { itemEstoqueId: 'FAR-SOJ', pct: 7 },
+          { itemEstoqueId: 'CAR-ALG', pct: 4 }, { itemEstoqueId: 'NUC-CONF', pct: 3 },
+        ],
+      },
+      {
+        id: 'D-CRES', nome: 'Crescimento', fase: 'crescimento', msPct: 62, consumoMSPctPV: 2.2, diasPrevistos: 40,
+        ingredientes: [
+          { itemEstoqueId: 'SIL-MIL', pct: 46 }, { itemEstoqueId: 'MIL-MOI', pct: 37 }, { itemEstoqueId: 'FAR-SOJ', pct: 8 },
+          { itemEstoqueId: 'CAR-ALG', pct: 6 }, { itemEstoqueId: 'NUC-CONF', pct: 3 },
+        ],
+      },
+      {
+        id: 'D-TERM', nome: 'Terminação', fase: 'terminacao', msPct: 71, consumoMSPctPV: 2.2, diasPrevistos: 50,
+        ingredientes: [
+          { itemEstoqueId: 'SIL-MIL', pct: 32 }, { itemEstoqueId: 'MIL-MOI', pct: 50 }, { itemEstoqueId: 'FAR-SOJ', pct: 7 },
+          { itemEstoqueId: 'CAR-ALG', pct: 7 }, { itemEstoqueId: 'NUC-CONF', pct: 4 },
+        ],
+      },
+    ],
+    lotes: [
+      { id: 'CF-01', nome: 'Lote 01 — Nelore Uberaba', prefixo: 'CF1', baiaId: 'B01', qtd: 118, entradaDias: -98, pesoEntrada: 390, gmd: 1.42, gmdMeta: 1.4, origem: 'compra', fornecedor: 'Leilão Uberaba', agioPct: 8, pesoAbateAlvo: 540, rendimentoEstimado: 54.5, diasCochoPlano: 95 },
+      { id: 'CF-02', nome: 'Lote 02 — Nelore Prata', prefixo: 'CF2', baiaId: 'B02', qtd: 118, entradaDias: -92, pesoEntrada: 385, gmd: 1.38, gmdMeta: 1.4, origem: 'compra', fornecedor: 'Fazenda Prata', agioPct: 8, pesoAbateAlvo: 540, rendimentoEstimado: 54, diasCochoPlano: 105 },
+      { id: 'CF-03', nome: 'Lote 03 — Nelore Frutal', prefixo: 'CF3', baiaId: 'B03', qtd: 115, entradaDias: -80, pesoEntrada: 400, gmd: 1.45, gmdMeta: 1.4, origem: 'compra', fornecedor: 'Leilão Frutal', agioPct: 7, pesoAbateAlvo: 550, rendimentoEstimado: 54.5, diasCochoPlano: 100, sobraOntemPct: 0.28 },
+      { id: 'CF-04', nome: 'Lote 04 — Recria própria', prefixo: 'CF4', baiaId: 'B04', qtd: 110, entradaDias: -66, pesoEntrada: 372, gmd: 1.22, gmdMeta: 1.4, origem: 'recria_propria', agioPct: 0, custoRecriaCab: 3650, pesoAbateAlvo: 530, rendimentoEstimado: 53.5, diasCochoPlano: 110 },
+      { id: 'CF-05', nome: 'Lote 05 — Nelore Araguari', prefixo: 'CF5', baiaId: 'B05', qtd: 120, entradaDias: -52, pesoEntrada: 380, gmd: 1.4, gmdMeta: 1.4, origem: 'compra', fornecedor: 'Fazenda Araguari', agioPct: 9, pesoAbateAlvo: 540, rendimentoEstimado: 54, diasCochoPlano: 110 },
+      { id: 'CF-06', nome: 'Lote 06 — Nelore Ituiutaba', prefixo: 'CF6', baiaId: 'B06', qtd: 112, entradaDias: -38, pesoEntrada: 395, gmd: 1.36, gmdMeta: 1.4, origem: 'compra', fornecedor: 'Leilão Ituiutaba', agioPct: 8, pesoAbateAlvo: 545, rendimentoEstimado: 54, diasCochoPlano: 105, quedaRecente: { dias: 3, fator: 0.86 } },
+      { id: 'CF-07', nome: 'Lote 07 — Cruzados Angus', prefixo: 'CF7', baiaId: 'B07', qtd: 108, entradaDias: -24, pesoEntrada: 410, gmd: 1.55, gmdMeta: 1.5, origem: 'compra', fornecedor: 'Fazenda Santa Clara', agioPct: 10, pesoAbateAlvo: 560, rendimentoEstimado: 55.5, diasCochoPlano: 95 },
+      { id: 'CF-08', nome: 'Lote 08 — Nelore Monte Alegre', prefixo: 'CF8', baiaId: 'B08', qtd: 116, entradaDias: -12, pesoEntrada: 378, gmd: 1.32, gmdMeta: 1.4, origem: 'compra', fornecedor: 'Fazenda Monte Alegre', agioPct: 8, pesoAbateAlvo: 540, rendimentoEstimado: 54, diasCochoPlano: 110 },
+      { id: 'CF-09', nome: 'Lote 09 — Recria própria', prefixo: 'CF9', baiaId: 'B09', qtd: 105, entradaDias: -5, pesoEntrada: 372, gmd: 1.3, gmdMeta: 1.4, origem: 'recria_propria', agioPct: 0, custoRecriaCab: 3700, pesoAbateAlvo: 535, rendimentoEstimado: 53.5, diasCochoPlano: 110 },
+    ],
+    ingredientes: [
+      { itemId: 'SIL-MIL', fornecedor: 'Produção própria — silagem 25/26', fator: 1.6, valorUnitario: 0.16 },
+      { itemId: 'MIL-MOI', fornecedor: 'Cerealista Triângulo', fator: 1.3, valorUnitario: 0.85 },
+      { itemId: 'FAR-SOJ', fornecedor: 'Cerealista Triângulo', fator: 1.25, valorUnitario: 2.0 },
+      { itemId: 'CAR-ALG', fornecedor: 'Algodoeira Vale', fator: 1.4, valorUnitario: 1.15 },
+      { itemId: 'NUC-CONF', fornecedor: 'Nutrição Cerrado', fator: 1.06, valorUnitario: 5.2 },
+    ],
+    abatesAnteriores: [
+      { loteNome: 'Lote 24-11 — Nelore Uberaba', baiaId: 'B10', dataDias: -32, diasCocho: 98, qtd: 112, pesoEntrada: 388, pesoVivoMedio: 538, rendimentoReal: 54.6, rendimentoEstimado: 54, precoArroba: 318, frigorifico: 'Frigorífico Planalto', custoCabEntrada: 4240, custoAlimentacaoCab: 1260, conversaoAlimentar: 6.8 },
+      { loteNome: 'Lote 24-10 — Nelore Prata', baiaId: 'B11', dataDias: -68, diasCocho: 102, qtd: 120, pesoEntrada: 380, pesoVivoMedio: 535, rendimentoReal: 53.8, rendimentoEstimado: 54, precoArroba: 312, frigorifico: 'Frigorífico Planalto', custoCabEntrada: 4150, custoAlimentacaoCab: 1310, conversaoAlimentar: 7.1 },
+    ],
+    enfermaria: [
+      // em tratamento / carência hoje
+      { loteId: 'CF-04', idx: 31, entradaDias: 0, diagnostico: 'Pneumonia', tratamento: 'Florfenicol 30% — 2 aplicações', itemEstoqueId: 'MED-FLO', custo: 95, diasTratamento: 4, carenciaDias: 30 },
+      { loteId: 'CF-04', idx: 12, entradaDias: -2, diagnostico: 'Pneumonia', tratamento: 'Florfenicol 30% — 2 aplicações', itemEstoqueId: 'MED-FLO', custo: 95, diasTratamento: 4, carenciaDias: 30 },
+      { loteId: 'CF-04', idx: 57, entradaDias: -3, diagnostico: 'Pneumonia', tratamento: 'Florfenicol 30% — 2 aplicações', itemEstoqueId: 'MED-FLO', custo: 95, diasTratamento: 4, carenciaDias: 30 },
+      { loteId: 'CF-04', idx: 74, entradaDias: -6, diagnostico: 'Timpanismo', tratamento: 'Sonda + antiespumante', custo: 40, diasTratamento: 1, carenciaDias: 0 },
+      { loteId: 'CF-04', idx: 88, entradaDias: -9, diagnostico: 'Laminite', tratamento: 'Casqueamento + anti-inflamatório', itemEstoqueId: 'MED-OXI', custo: 60, diasTratamento: 3, carenciaDias: 21 },
+      { loteId: 'CF-08', idx: 5, entradaDias: -1, diagnostico: 'Acidose', tratamento: 'Bicarbonato + feno, dieta de adaptação', custo: 25, diasTratamento: 3, carenciaDias: 0 },
+      { loteId: 'CF-08', idx: 40, entradaDias: -1, diagnostico: 'Acidose', tratamento: 'Bicarbonato + feno, dieta de adaptação', custo: 25, diasTratamento: 3, carenciaDias: 0 },
+      { loteId: 'CF-08', idx: 66, entradaDias: -4, diagnostico: 'Conjuntivite', tratamento: 'Colírio + oxitetraciclina', itemEstoqueId: 'MED-OXI', custo: 45, diasTratamento: 5, carenciaDias: 21 },
+      { loteId: 'CF-08', idx: 91, entradaDias: -5, diagnostico: 'Pneumonia', tratamento: 'Florfenicol 30% — 2 aplicações', itemEstoqueId: 'MED-FLO', custo: 95, diasTratamento: 4, carenciaDias: 30 },
+      { loteId: 'CF-02', idx: 19, entradaDias: -8, diagnostico: 'Abscesso', tratamento: 'Drenagem + oxitetraciclina', itemEstoqueId: 'MED-OXI', custo: 55, diasTratamento: 5, carenciaDias: 21 },
+      { loteId: 'CF-05', idx: 44, entradaDias: -11, diagnostico: 'Laminite', tratamento: 'Casqueamento + anti-inflamatório', itemEstoqueId: 'MED-OXI', custo: 60, diasTratamento: 3, carenciaDias: 21 },
+      { loteId: 'CF-05', idx: 77, entradaDias: -14, diagnostico: 'Pneumonia', tratamento: 'Florfenicol 30% — 2 aplicações', itemEstoqueId: 'MED-FLO', custo: 95, diasTratamento: 4, carenciaDias: 30 },
+      // carência cumprida e ainda na enfermaria — alerta "pode voltar ao lote"
+      { loteId: 'CF-02', idx: 63, entradaDias: -40, diagnostico: 'Pneumonia', tratamento: 'Florfenicol 30% — 2 aplicações', itemEstoqueId: 'MED-FLO', custo: 95, diasTratamento: 4, carenciaDias: 30 },
+      { loteId: 'CF-01', idx: 22, entradaDias: -31, diagnostico: 'Abscesso', tratamento: 'Drenagem + oxitetraciclina', itemEstoqueId: 'MED-OXI', custo: 55, diasTratamento: 5, carenciaDias: 21 },
+      // histórico: altas e óbitos
+      { loteId: 'CF-01', idx: 48, entradaDias: -70, diagnostico: 'Pneumonia', tratamento: 'Florfenicol 30% — 2 aplicações', itemEstoqueId: 'MED-FLO', custo: 95, diasTratamento: 4, carenciaDias: 30, saidaDias: -36, destino: 'alta' },
+      { loteId: 'CF-02', idx: 80, entradaDias: -60, diagnostico: 'Timpanismo', tratamento: 'Sonda + antiespumante', custo: 40, diasTratamento: 1, carenciaDias: 0, saidaDias: -58, destino: 'alta' },
+      { loteId: 'CF-03', idx: 9, entradaDias: -50, diagnostico: 'Laminite', tratamento: 'Casqueamento + anti-inflamatório', itemEstoqueId: 'MED-OXI', custo: 60, diasTratamento: 3, carenciaDias: 21, saidaDias: -26, destino: 'alta' },
+      { loteId: 'CF-05', idx: 101, entradaDias: -30, diagnostico: 'Acidose', tratamento: 'Bicarbonato + feno, dieta de adaptação', custo: 25, diasTratamento: 3, carenciaDias: 0, saidaDias: -26, destino: 'alta' },
+      { loteId: 'CF-01', idx: 117, entradaDias: -75, diagnostico: 'Pneumonia grave', tratamento: 'Florfenicol 30% + suporte', itemEstoqueId: 'MED-FLO', custo: 190, diasTratamento: 4, carenciaDias: 30, saidaDias: -72, destino: 'obito' },
+      { loteId: 'CF-03', idx: 114, entradaDias: -41, diagnostico: 'Timpanismo agudo', tratamento: 'Sonda + antiespumante', custo: 40, diasTratamento: 1, carenciaDias: 0, saidaDias: -41, destino: 'obito' },
+    ],
+  },
+  itensEstoque: [
+    { id: 'SIL-MIL', nome: 'Silagem de milho', categoria: 'racao', unidade: 'kg', minimo: 150000 },
+    { id: 'MIL-MOI', nome: 'Milho grão moído', categoria: 'racao', unidade: 'kg', minimo: 60000 },
+    { id: 'FAR-SOJ', nome: 'Farelo de soja', categoria: 'racao', unidade: 'kg', minimo: 10000 },
+    { id: 'CAR-ALG', nome: 'Caroço de algodão', categoria: 'racao', unidade: 'kg', minimo: 8000 },
+    { id: 'NUC-CONF', nome: 'Núcleo mineral confinamento', categoria: 'sal_mineral', unidade: 'kg', minimo: 4000 },
+    { id: 'VAC-CLO', nome: 'Vacina clostridiose', categoria: 'vacina', unidade: 'dose', minimo: 200, validadeDias: 80 },
+    { id: 'VAC-AFT', nome: 'Vacina aftosa', categoria: 'vacina', unidade: 'dose', minimo: 200, validadeDias: 150 },
+    { id: 'MED-IVE', nome: 'Ivermectina 1% 500ml', categoria: 'medicamento', unidade: 'frasco', minimo: 10, validadeDias: 300 },
+    { id: 'MED-OXI', nome: 'Oxitetraciclina LA 200ml', categoria: 'medicamento', unidade: 'frasco', minimo: 8, validadeDias: 280 },
+    { id: 'MED-FLO', nome: 'Florfenicol 30% 250ml', categoria: 'medicamento', unidade: 'frasco', minimo: 6, validadeDias: 320 },
+  ],
+  pedidos: [
+    {
+      numero: 'PC-2025-201', fornecedor: 'AgroFarma Distribuidora', dataDias: -105, recebidoDias: -100, status: 'recebido',
+      rateio: { Cria: 0, Recria: 0, Terminacao: 100, Geral: 0 },
+      itens: [
+        { itemEstoqueId: 'VAC-CLO', descricao: 'Vacina clostridiose (dose)', quantidade: 1400, valorUnitario: 1.2 },
+        { itemEstoqueId: 'VAC-AFT', descricao: 'Vacina aftosa (dose)', quantidade: 1400, valorUnitario: 1.8 },
+        { itemEstoqueId: 'MED-IVE', descricao: 'Ivermectina 1% 500ml (frasco)', quantidade: 60, valorUnitario: 42 },
+        { itemEstoqueId: 'MED-OXI', descricao: 'Oxitetraciclina LA 200ml (frasco)', quantidade: 40, valorUnitario: 38 },
+        { itemEstoqueId: 'MED-FLO', descricao: 'Florfenicol 30% 250ml (frasco)', quantidade: 36, valorUnitario: 95 },
+      ],
+    },
+  ],
+  saidasEstoque: [
+    { itemId: 'VAC-CLO', dia: -98, quantidade: 1022, loteDestino: 'Lotes na entrada', obs: 'Clostridiose na recepção' },
+    { itemId: 'MED-IVE', dia: -98, quantidade: 30, loteDestino: 'Lotes na entrada', obs: 'Vermifugação na recepção' },
+    { itemId: 'VAC-AFT', dia: -60, quantidade: 900, loteDestino: 'Lotes 01 a 06', obs: 'Campanha aftosa' },
+  ],
+  historicoPrecosBase: { 'MIL-MOI': 0.72, 'FAR-SOJ': 1.85, 'NUC-CONF': 4.8, 'CAR-ALG': 1.05 },
+  salga: { inicioDias: 0, itemId: 'NUC-CONF', diasPorFornecimento: 7, fatores: {} },
+  despesasFixas: [
+    { descricao: 'Folha de pagamento', categoria: 'Pessoal', valorMes: 42000 },
+    { descricao: 'Energia elétrica (fábrica de ração + poço)', categoria: 'Energia', valorMes: 6500 },
+    { descricao: 'Combustível (vagão, pá e trator)', categoria: 'Combustível', valorMes: 9800 },
+  ],
+  maquinas: [
+    {
+      id: 'MAQ-1', nome: 'Vagão misturador 12 m³', tipo: 'Trato', ano: 2021, horimetro: 2890, proximaRevisaoHorimetro: 3000,
+      manutencoes: [
+        { diasAtras: 120, tipo: 'preventiva', descricao: 'Revisão de 2.500 h — facas, correias e balança', custo: 3800, horimetro: 2510 },
+        { diasAtras: 18, tipo: 'corretiva', descricao: 'Troca da célula de carga da balança', custo: 2400, horimetro: 2855 },
+      ],
+    },
+    {
+      id: 'MAQ-2', nome: 'Pá carregadeira JCB', tipo: 'Carregadeira', ano: 2019, horimetro: 5120, proximaRevisaoHorimetro: 5250,
+      manutencoes: [{ diasAtras: 70, tipo: 'preventiva', descricao: 'Revisão de 5.000 h', custo: 5200, horimetro: 5005 }],
+    },
+    {
+      id: 'MAQ-3', nome: 'Trator MF 7180', tipo: 'Trator', ano: 2020, horimetro: 3340, proximaRevisaoHorimetro: 3500,
+      manutencoes: [{ diasAtras: 40, tipo: 'corretiva', descricao: 'Reparo no sistema hidráulico', custo: 1900, horimetro: 3290 }],
+    },
+    {
+      id: 'MAQ-4', nome: 'Balança rodoviária 60 t', tipo: 'Balança', ano: 2018,
+      proximaRevisaoDataDias: 25,
+      manutencoes: [{ diasAtras: 340, tipo: 'preventiva', descricao: 'Aferição anual (INMETRO)', custo: 1500 }],
+    },
+  ],
+  ordensServico: [
+    {
+      numero: 'OS-101', titulo: 'Reforma do piso da baia B10', tipo: 'infraestrutura', vinculo: 'Baia 10',
+      responsavel: 'Edson (tratador)', aberturaDias: -9, prazoDias: 6, status: 'em_andamento',
+      notas: [{ dias: -4, texto: 'Piso raspado, falta o cascalho e a compactação' }],
+    },
+    {
+      numero: 'OS-102', titulo: 'Cobertura do cocho da baia B05', tipo: 'infraestrutura', vinculo: 'Baia 05',
+      responsavel: 'Construtora Rural', aberturaDias: -20, prazoDias: -3, status: 'aberta',
+      notas: [{ dias: -12, texto: 'Aguardando a estrutura metálica' }],
+    },
+    {
+      numero: 'OS-103', titulo: 'Aferição da balança do vagão', tipo: 'manutencao', vinculo: 'Vagão misturador 12 m³',
+      responsavel: 'Jonas (tratador)', aberturaDias: -22, status: 'concluida', conclusaoDias: -18,
+      notas: [{ dias: -18, texto: 'Célula de carga trocada e balança aferida' }],
+    },
+  ],
+  manejos: [
+    { dia: -98, tipo: 'vacinacao', produto: 'Vacina clostridiose', itemEstoqueId: 'VAC-CLO', alvo: 'Lotes na entrada', qtdAnimais: 1022, responsavel: 'Dr. Paulo (veterinário)', obs: 'Protocolo de recepção' },
+    { dia: -98, tipo: 'vermifugacao', produto: 'Ivermectina 1%', itemEstoqueId: 'MED-IVE', alvo: 'Lotes na entrada', qtdAnimais: 1022, responsavel: 'Dr. Paulo (veterinário)' },
+    { dia: -60, tipo: 'vacinacao', produto: 'Vacina aftosa', itemEstoqueId: 'VAC-AFT', alvo: 'Lotes 01 a 06', qtdAnimais: 900, responsavel: 'Dr. Paulo (veterinário)', obs: 'Campanha oficial' },
+  ],
+  rondas: [
+    {
+      dia: -1, responsavel: 'Dr. Paulo (veterinário)', pastoId: 'P1',
+      ocorrencias: [
+        { brinco: 'CF4-031', tipo: 'doente', descricao: 'Tosse e secreção nasal — levar para a enfermaria', resolvida: true },
+        { tipo: 'observacao', descricao: 'Bebedouro da B06 com vazão baixa — conferir boia', resolvida: false },
+      ],
+    },
+    { dia: -5, responsavel: 'Jonas (tratador)', pastoId: 'P1', obs: 'Cochos e bebedouros limpos, sem ocorrências', ocorrencias: [] },
+  ],
+}
+
 export const PERFIS: Record<PerfilDemo, PerfilParams> = {
   ciclo_completo: PERFIL_CICLO,
   cria_150: PERFIL_CRIA,
   corte_leite: PERFIL_CORTE_LEITE,
+  confinamento: PERFIL_CONF,
 }
 
 /** Metadados de apresentação de cada perfil (nome, módulos da sidebar e destaques do banner) */
@@ -996,6 +1301,23 @@ export const PERFIL_INFO: Record<PerfilDemo, PerfilInfo> = {
       { rotulo: 'Ordens de serviço com acompanhamento', link: '/os' },
     ],
   },
+  confinamento: {
+    nome: 'Confinamento',
+    descricao: 'Confinamento, 12 baias, 1.022 cabeças no cocho',
+    boasVindas:
+      'Confinamento do cocho ao abate: leitura de cocho por baia, dietas por fase, custo por arroba produzida, margem projetada, enfermaria e romaneio do frigorífico.',
+    modulos: ['/', '/confinamento', '/rebanho', '/sanitario', '/estoque', '/compras', '/financeiro', '/maquinas', '/os', '/equipe', '/relatorios'],
+    destaques: [
+      { rotulo: 'Painel do confinamento', link: '/confinamento' },
+      { rotulo: 'Painel do lote: custo, conversão e margem', link: '/confinamento?tab=lotes' },
+      { rotulo: 'Leitura de cocho por baia', link: '/confinamento?tab=cocho' },
+      { rotulo: 'Dietas por fase e batida de ração', link: '/confinamento?tab=dietas' },
+      { rotulo: 'Abate, romaneio e projeção', link: '/confinamento?tab=abate' },
+      { rotulo: 'Enfermaria e carência', link: '/confinamento?tab=enfermaria' },
+      { rotulo: 'Simulador de cenário e viabilidade', link: '/confinamento?tab=simular' },
+      { rotulo: 'Fluxo de caixa', link: '/financeiro' },
+    ],
+  },
 }
 
 // ---------------------------------------------------------------------
@@ -1026,6 +1348,11 @@ export function diffDays(a: string, b: string): number {
 
 function round1(n: number) {
   return Math.round(n * 10) / 10
+}
+
+/** número no padrão pt-BR para textos gerados pelo seed (livro de movimentação) */
+function fmtPesoSeed(n: number) {
+  return n.toLocaleString('pt-BR', { maximumFractionDigits: 0 })
 }
 
 const NOMES_TOUROS = [
@@ -1495,6 +1822,230 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     }
   }
 
+  // ---- Confinamento completo: baias, dietas, lotes individuais, cocho por baia, abates, enfermaria ----
+  const baias: Baia[] = []
+  const dietas: Dieta[] = []
+  const lotesConfinamento: LoteConfinamento[] = []
+  const abates: Abate[] = []
+  const enfermaria: Enfermaria[] = []
+  const leiturasConf: LeituraCocho[] = []
+  const saidasConf: Omit<MovEstoque, 'id'>[] = []
+  const pedidosConf: PerfilParams['pedidos'] = []
+  const lancamentosConf: Omit<Lancamento, 'id'>[] = []
+  const C = P.confinamentoCompleto
+  if (C) {
+    baias.push(...C.baias.map((b) => ({ ...b })))
+    dietas.push(...C.dietas.map((d) => ({ ...d, ingredientes: d.ingredientes.map((i) => ({ ...i })) })))
+    const dietaDaFase = (f: FaseConfinamento) => dietas.find((d) => d.fase === f)!
+    const diasAdap = dietaDaFase('adaptacao').diasPrevistos
+    const diasCres = dietaDaFase('crescimento').diasPrevistos
+    const faseNoDia = (d: number): FaseConfinamento =>
+      d < diasAdap ? 'adaptacao' : d < diasAdap + diasCres ? 'crescimento' : 'terminacao'
+    const pastoConf = pastos.find((p) => p.id === C.pastoId)
+    const nomePasto = pastoConf?.nome ?? 'Confinamento'
+
+    // consumo diário por ingrediente (todas as baias) → saídas de estoque e compras
+    const consumoDia = new Map<string, Map<string, number>>()
+    const lotesPorDia = new Map<string, number>()
+
+    for (const lc of C.lotes) {
+      const dataEntrada = addDays(today, lc.entradaDias)
+      const diasCocho = -lc.entradaDias
+      lotes.push({ id: lc.id, nome: lc.nome, pastoId: C.pastoId, finalidade: 'terminacao' })
+
+      // peso médio do lote dia a dia: o GMD muda com a fase (adaptação ganha menos)
+      const pesoNoDia: number[] = [lc.pesoEntrada]
+      for (let d = 1; d <= diasCocho; d++) {
+        pesoNoDia.push(pesoNoDia[d - 1] + lc.gmd * CONFINAMENTO.fatorGmdFase[faseNoDia(d - 1)])
+      }
+      const pesagensLote: { data: string; peso: number }[] = []
+      for (let d = 0; d <= diasCocho; d += 28) pesagensLote.push({ data: addDays(dataEntrada, d), peso: round1(pesoNoDia[d]) })
+      if (diasCocho % 28 !== 0) pesagensLote.push({ data: today, peso: round1(pesoNoDia[diasCocho]) })
+
+      const historicoDieta: LoteConfinamento['historicoDieta'] = [{ data: dataEntrada, dietaId: dietaDaFase('adaptacao').id, fase: 'adaptacao' }]
+      if (diasCocho >= diasAdap) historicoDieta.push({ data: addDays(dataEntrada, diasAdap), dietaId: dietaDaFase('crescimento').id, fase: 'crescimento' })
+      if (diasCocho >= diasAdap + diasCres) historicoDieta.push({ data: addDays(dataEntrada, diasAdap + diasCres), dietaId: dietaDaFase('terminacao').id, fase: 'terminacao' })
+      const faseAtual = faseNoDia(diasCocho)
+      const custoCabEntrada =
+        lc.origem === 'compra'
+          ? Math.round((lc.pesoEntrada / KG_POR_ARROBA) * C.precoArrobaMagro * (1 + lc.agioPct / 100))
+          : (lc.custoRecriaCab ?? 0)
+
+      // animais individuais (os óbitos da enfermaria entram como 'morto')
+      const obitos = C.enfermaria.filter((e) => e.loteId === lc.id && e.destino === 'obito')
+      const qtdEntrada = lc.qtd + obitos.length
+      for (let i = 0; i < qtdEntrada; i++) {
+        const obito = obitos.find((e) => e.idx === i)
+        const off = ((i % 17) - 8) * 2.4
+        const fator = i % 23 === 5 ? 0.78 : i % 23 === 14 ? 1.15 : 1 + (((i * 7) % 11) - 5) * 0.02
+        const pesoEntradaInd = round1(lc.pesoEntrada + off)
+        const pesagensInd = pesagensLote.map((p) => ({
+          data: p.data,
+          peso: round1(pesoEntradaInd + (p.peso - lc.pesoEntrada) * fator),
+        }))
+        const dataMorte = obito ? addDays(today, obito.saidaDias ?? 0) : undefined
+        const pesagensAnimal = dataMorte ? pesagensInd.filter((p) => p.data <= dataMorte) : pesagensInd
+        animais.push({
+          id: `A-${lc.prefixo}${i + 1}`,
+          brinco: `${lc.prefixo}-${String(i + 1).padStart(3, '0')}`,
+          sexo: 'M',
+          categoria: 'boi_terminacao',
+          raca: 'Nelore',
+          nascimento: addDays(dataEntrada, -Math.round(720 + rng() * 180)),
+          loteId: lc.id,
+          pesoAtual: pesagensAnimal[pesagensAnimal.length - 1]?.peso ?? pesoEntradaInd,
+          pesagens: pesagensAnimal,
+          sanitario: [
+            { data: dataEntrada, tipo: 'Vacinação', produto: 'Vacina clostridiose' },
+            { data: dataEntrada, tipo: 'Vermifugação', produto: 'Ivermectina 1%' },
+          ],
+          status: obito ? 'morto' : 'ativo',
+        })
+      }
+      const cab = lc.qtd
+      const faixa = `${lc.prefixo}-001…${lc.prefixo}-${String(qtdEntrada).padStart(3, '0')}`
+      if (lc.origem === 'compra') {
+        mov({ data: dataEntrada, tipo: 'compra', brinco: faixa, categoria: 'boi_terminacao', quantidade: qtdEntrada, destino: lc.nome, obs: `${lc.fornecedor} — ${fmtPesoSeed(lc.pesoEntrada)} kg médio, ágio ${lc.agioPct}%` })
+        lancamentosConf.push({
+          tipo: 'despesa', categoria: 'Compra de animais', descricao: `${qtdEntrada} bois magros — ${lc.nome}`,
+          valor: qtdEntrada * custoCabEntrada, vencimento: dataEntrada, pagamento: dataEntrada, origem: 'compra_animal', refId: lc.id, centroCusto: 'Terminacao',
+        })
+      } else {
+        mov({ data: dataEntrada, tipo: 'transferencia', brinco: faixa, categoria: 'boi_terminacao', quantidade: qtdEntrada, origem: 'Recria própria', destino: lc.nome, obs: `Entrada no cocho — ${fmtPesoSeed(lc.pesoEntrada)} kg médio` })
+      }
+
+      lotesConfinamento.push({
+        id: lc.id, nome: lc.nome, baiaId: lc.baiaId, dataEntrada, qtdEntrada, pesoEntrada: lc.pesoEntrada,
+        origem: lc.origem, fornecedor: lc.fornecedor, custoCabEntrada, agioPct: lc.agioPct,
+        dietaId: dietaDaFase(faseAtual).id, fase: faseAtual, historicoDieta, gmdMeta: lc.gmdMeta,
+        pesoAbateAlvo: lc.pesoAbateAlvo, rendimentoEstimado: lc.rendimentoEstimado, diasCochoPlano: lc.diasCochoPlano,
+        pesagens: pesagensLote, status: 'ativo',
+      })
+
+      // leituras de cocho até ONTEM (a de hoje fica pendente para a apresentação)
+      let tratoAnterior = 0
+      for (let d = 0; d < diasCocho; d++) {
+        const dia = lc.entradaDias + d
+        const dieta = dietaDaFase(faseNoDia(d))
+        const previsto = (cab * pesoNoDia[d] * (dieta.consumoMSPctPV / 100)) / (dieta.msPct / 100)
+        let fator = (lc.fatorConsumo ?? 1) * (0.96 + rng() * 0.08)
+        if (lc.quedaRecente && dia >= -lc.quedaRecente.dias) fator *= lc.quedaRecente.fator
+        if (d < 3) fator *= 0.8 + d * 0.07 // primeiros dias: trato de chegada
+        const realizado = Math.round(previsto * fator)
+        let sobraPct = fator < 0.98 ? rng() * 0.02 : 0.02 + rng() * 0.07
+        if (dia === -1 && lc.sobraOntemPct !== undefined) sobraPct = lc.sobraOntemPct
+        const nota: LeituraCocho['nota'] = sobraPct < 0.01 ? 0 : sobraPct < 0.03 ? 1 : sobraPct < 0.07 ? 2 : sobraPct < 0.2 ? 3 : 4
+        const data = addDays(today, dia)
+        leiturasConf.push({
+          id: `LC-${lc.prefixo}-${String(d + 1).padStart(3, '0')}`,
+          data, loteId: lc.id, baiaId: lc.baiaId, nota, cabecas: cab,
+          kgOntem: d === 0 ? realizado : tratoAnterior, kgCalculado: realizado,
+          sobraKg: Math.round(realizado * sobraPct), dietaId: dieta.id,
+          itemEstoqueId: dieta.ingredientes[0].itemEstoqueId, responsavelId: campoId,
+        })
+        tratoAnterior = realizado
+        const porItem = consumoDia.get(data) ?? new Map<string, number>()
+        for (const ing of dieta.ingredientes) porItem.set(ing.itemEstoqueId, (porItem.get(ing.itemEstoqueId) ?? 0) + (realizado * ing.pct) / 100)
+        consumoDia.set(data, porItem)
+        lotesPorDia.set(data, (lotesPorDia.get(data) ?? 0) + 1)
+      }
+    }
+
+    // batida de ração do dia: uma saída por ingrediente
+    const totalPorItem = new Map<string, number>()
+    for (const [data, porItem] of [...consumoDia.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      for (const [itemId, kg] of porItem) {
+        const q = Math.round(kg)
+        saidasConf.push({ data, itemId, tipo: 'saida', quantidade: q, loteDestino: nomePasto, obs: `Batida de ração — ${lotesPorDia.get(data)} baias` })
+        totalPorItem.set(itemId, (totalPorItem.get(itemId) ?? 0) + q)
+      }
+    }
+    // compras dos ingredientes: duas entregas (antes do 1º lote e no meio do período) cobrindo consumo × fator
+    const primeiroDia = Math.min(...C.lotes.map((l) => l.entradaDias))
+    C.ingredientes.forEach((ing, i) => {
+      const total = Math.round(((totalPorItem.get(ing.itemId) ?? 0) * ing.fator) / 100) * 100
+      const nome = P.itensEstoque.find((it) => it.id === ing.itemId)?.nome ?? ing.itemId
+      const parte1 = Math.round((total * 0.55) / 100) * 100
+      pedidosConf.push({
+        numero: `PC-2025-${210 + i * 2}`, fornecedor: ing.fornecedor, dataDias: primeiroDia - 6, recebidoDias: primeiroDia - 2, status: 'recebido',
+        rateio: { Cria: 0, Recria: 0, Terminacao: 100, Geral: 0 },
+        itens: [{ itemEstoqueId: ing.itemId, descricao: `${nome} (kg)`, quantidade: parte1, valorUnitario: ing.valorUnitario }],
+      })
+      pedidosConf.push({
+        numero: `PC-2025-${211 + i * 2}`, fornecedor: ing.fornecedor, dataDias: Math.round(primeiroDia / 2) - 5, recebidoDias: Math.round(primeiroDia / 2), status: 'recebido',
+        rateio: { Cria: 0, Recria: 0, Terminacao: 100, Geral: 0 },
+        itens: [{ itemEstoqueId: ing.itemId, descricao: `${nome} (kg)`, quantidade: total - parte1, valorUnitario: Math.round(ing.valorUnitario * 1.04 * 100) / 100 }],
+      })
+    })
+    // reposição do núcleo já aprovada (o alerta de "menos de 7 dias" mostra que ela está a caminho)
+    const nucleo = C.ingredientes[C.ingredientes.length - 1]
+    pedidosConf.push({
+      numero: 'PC-2025-230', fornecedor: nucleo.fornecedor, dataDias: -2, status: 'aprovado',
+      rateio: { Cria: 0, Recria: 0, Terminacao: 100, Geral: 0 },
+      itens: [{ itemEstoqueId: nucleo.itemId, descricao: `${P.itensEstoque.find((it) => it.id === nucleo.itemId)?.nome ?? nucleo.itemId} (kg)`, quantidade: 12000, valorUnitario: Math.round(nucleo.valorUnitario * 1.05 * 100) / 100 }],
+    })
+
+    // abates já feitos: receita no Financeiro, venda no livro e fotografia do lote
+    C.abatesAnteriores.forEach((ab, i) => {
+      const data = addDays(today, ab.dataDias)
+      const pesoCarcacaTotal = Math.round(ab.qtd * ab.pesoVivoMedio * (ab.rendimentoReal / 100))
+      const arrobas = pesoCarcacaTotal / CONFINAMENTO.kgArrobaCarcaca
+      const receita = Math.round(arrobas * ab.precoArroba)
+      const custoFixo = ab.qtd * ab.diasCocho * (P.config.custoFixoCabDia ?? CONFINAMENTO.custoFixoCabDia)
+      const custoTotal = ab.qtd * (ab.custoCabEntrada + ab.custoAlimentacaoCab) + custoFixo
+      const ganhoCarcacaKg = ab.qtd * (ab.pesoVivoMedio - ab.pesoEntrada) * (ab.rendimentoReal / 100)
+      const arrobasProduzidas = ganhoCarcacaKg / CONFINAMENTO.kgArrobaCarcaca
+      const loteId = `CF-AB${i + 1}`
+      abates.push({
+        id: `AB-${i + 1}`, data, loteId, loteNome: ab.loteNome, frigorifico: ab.frigorifico, qtd: ab.qtd,
+        pesoVivoMedio: ab.pesoVivoMedio, pesoCarcacaTotal, rendimentoReal: ab.rendimentoReal, rendimentoEstimado: ab.rendimentoEstimado,
+        precoArroba: ab.precoArroba, receita, diasCocho: ab.diasCocho, gmd: round1((ab.pesoVivoMedio - ab.pesoEntrada) / ab.diasCocho * 100) / 100,
+        conversaoAlimentar: ab.conversaoAlimentar, custoTotal,
+        custoArrobaProduzida: Math.round(((ab.qtd * ab.custoAlimentacaoCab + custoFixo) / arrobasProduzidas) * 100) / 100,
+        arrobasProduzidas: Math.round(arrobasProduzidas * 10) / 10, margem: receita - custoTotal,
+      })
+      const dataEntrada = addDays(data, -ab.diasCocho)
+      lotesConfinamento.push({
+        id: loteId, nome: ab.loteNome, baiaId: ab.baiaId, dataEntrada, qtdEntrada: ab.qtd, pesoEntrada: ab.pesoEntrada,
+        origem: 'compra', custoCabEntrada: ab.custoCabEntrada, agioPct: 8, dietaId: dietaDaFase('terminacao').id, fase: 'terminacao',
+        historicoDieta: [
+          { data: dataEntrada, dietaId: dietaDaFase('adaptacao').id, fase: 'adaptacao' },
+          { data: addDays(dataEntrada, diasAdap), dietaId: dietaDaFase('crescimento').id, fase: 'crescimento' },
+          { data: addDays(dataEntrada, diasAdap + diasCres), dietaId: dietaDaFase('terminacao').id, fase: 'terminacao' },
+        ],
+        gmdMeta: 1.4, pesoAbateAlvo: ab.pesoVivoMedio, rendimentoEstimado: ab.rendimentoEstimado, diasCochoPlano: ab.diasCocho,
+        pesagens: [{ data: dataEntrada, peso: ab.pesoEntrada }, { data, peso: ab.pesoVivoMedio }], status: 'abatido',
+      })
+      mov({ data, tipo: 'venda', brinco: ab.loteNome, categoria: 'boi_terminacao', quantidade: ab.qtd, origem: nomePasto, obs: `Abate — ${ab.frigorifico}, ${fmtPesoSeed(ab.pesoVivoMedio)} kg vivo, rendimento ${ab.rendimentoReal}%` })
+      lancamentosConf.push({
+        tipo: 'receita', categoria: 'Venda de animais', descricao: `Abate ${ab.loteNome} — ${ab.frigorifico}`,
+        valor: receita, vencimento: addDays(data, 30), pagamento: ab.dataDias + 30 <= 0 ? addDays(data, 30) : undefined,
+        origem: 'venda_animal', refId: `AB-${i + 1}`, centroCusto: 'Terminacao',
+      })
+    })
+
+    // enfermaria: entrada, tratamento (baixa o medicamento), alta ou óbito
+    C.enfermaria.forEach((e, i) => {
+      const lc = C.lotes.find((l) => l.id === e.loteId)!
+      const animal = animais.find((a) => a.id === `A-${lc.prefixo}${e.idx + 1}`)!
+      const entrada = addDays(today, e.entradaDias)
+      const saida = e.saidaDias !== undefined ? addDays(today, e.saidaDias) : undefined
+      enfermaria.push({
+        id: `EN-${i + 1}`, animalId: animal.id, brinco: animal.brinco, loteId: e.loteId, entrada,
+        diagnostico: e.diagnostico, tratamento: e.tratamento, itemEstoqueId: e.itemEstoqueId, custo: e.custo,
+        carenciaDias: e.carenciaDias, fimTratamento: addDays(entrada, e.diasTratamento), saida, destino: e.destino,
+        responsavelId: equipe.find((m) => m.nome.startsWith('Dr.'))?.id ?? campoId,
+      })
+      animal.sanitario.push({ data: entrada, tipo: 'Tratamento', produto: `${e.diagnostico} — ${e.tratamento}` })
+      if (e.itemEstoqueId) {
+        saidasConf.push({ data: entrada, itemId: e.itemEstoqueId, tipo: 'saida', quantidade: 1, loteDestino: 'Enfermaria', obs: `${animal.brinco} — ${e.diagnostico}` })
+      }
+      if (e.destino === 'obito' && saida) {
+        mov({ data: saida, tipo: 'morte', brinco: animal.brinco, categoria: 'boi_terminacao', quantidade: 1, origem: lc.nome, obs: `Óbito na enfermaria — ${e.diagnostico}` })
+      }
+    })
+  }
+
   if (P.vendaDescarte) {
     mov({
       data: addDays(today, P.vendaDescarte.dia),
@@ -1586,7 +2137,7 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
   const tourosRepasse: TouroRepasse[] = R.tourosRepasse.map((t) => ({ ...t }))
 
   // ---- Compras ----
-  const pedidos: Pedido[] = P.pedidos.map((p, i) => ({
+  const pedidos: Pedido[] = [...P.pedidos, ...pedidosConf].map((p, i) => ({
     id: `PED-${i + 1}`,
     numero: p.numero,
     fornecedor: p.fornecedor,
@@ -1641,6 +2192,7 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
       obs: s.obs,
     })
   }
+  for (const s of saidasConf) mePush(s)
 
   // ---- Salga em campo: cada fornecimento de sal é uma saída de estoque ----
   const fornecimentosSal: FornecimentoSal[] = []
@@ -1726,6 +2278,7 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     }
   }
 
+  leiturasCocho.push(...leiturasConf)
   movEstoque.sort((a, b) => a.data.localeCompare(b.data))
 
   const estoque: ItemEstoque[] = P.itensEstoque.map((def) => {
@@ -1909,6 +2462,8 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
       origem: 'fixa',
     })
   }
+  // confinamento: compra dos lotes e receita dos abates
+  for (const l of lancamentosConf) lcPush(l)
   // receita: venda de descarte
   if (P.vendaDescarte) {
     lcPush({
@@ -1986,5 +2541,10 @@ export function buildSeed(perfil: PerfilDemo = 'ciclo_completo', hoje?: string):
     rondas,
     fornecimentosSal,
     leiturasCocho,
+    baias,
+    dietas,
+    lotesConfinamento,
+    abates,
+    enfermaria,
   }
 }
